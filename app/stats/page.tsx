@@ -3,10 +3,10 @@
 import Shell from "@/components/Shell";
 import MiniChart from "@/components/MiniChart";
 import { useApp } from "@/components/AppProvider";
-import { useMemo } from "react";
+import { useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
-export default function StatsPage() {
+function StatsContent() {
   const { intakes, cases } = useApp();
   const sp = useSearchParams();
   const tab = sp.get("tab") ?? "base";
@@ -73,5 +73,13 @@ export default function StatsPage() {
         </div>
       </div>
     </Shell>
+  );
+}
+
+export default function StatsPage() {
+  return (
+    <Suspense fallback={null}>
+      <StatsContent />
+    </Suspense>
   );
 }

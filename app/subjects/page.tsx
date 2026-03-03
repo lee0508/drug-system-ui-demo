@@ -2,7 +2,7 @@
 
 import Shell from "@/components/Shell";
 import { mockSubjects } from "@/lib/mockData";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 const TAB_LABELS = [
@@ -22,7 +22,7 @@ function fmt(ts: string) {
   return new Date(ts).toLocaleDateString();
 }
 
-export default function SubjectsPage() {
+function SubjectsContent() {
   const sp = useSearchParams();
   const [tab, setTab] = useState(sp.get("tab") ?? "subject");
   const [search, setSearch] = useState("");
@@ -150,5 +150,13 @@ export default function SubjectsPage() {
       )}
 
     </Shell>
+  );
+}
+
+export default function SubjectsPage() {
+  return (
+    <Suspense fallback={null}>
+      <SubjectsContent />
+    </Suspense>
   );
 }

@@ -2,7 +2,7 @@
 
 import Shell from "@/components/Shell";
 import { useApp } from "@/components/AppProvider";
-import { useMemo } from "react";
+import { useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 function fmt(ts?: string) {
@@ -11,7 +11,7 @@ function fmt(ts?: string) {
   return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
 }
 
-export default function IntegrationsPage() {
+function IntegrationsContent() {
   const { connectors, logs, retryLog } = useApp();
   const sp = useSearchParams();
   const focus = sp.get("focus");
@@ -91,5 +91,13 @@ export default function IntegrationsPage() {
         </div>
       </div>
     </Shell>
+  );
+}
+
+export default function IntegrationsPage() {
+  return (
+    <Suspense fallback={null}>
+      <IntegrationsContent />
+    </Suspense>
   );
 }

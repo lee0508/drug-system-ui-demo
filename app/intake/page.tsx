@@ -3,7 +3,7 @@
 import Shell from "@/components/Shell";
 import Stepper from "@/components/Stepper";
 import { useApp } from "@/components/AppProvider";
-import { useMemo, useState } from "react";
+import { useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Intake } from "@/lib/types";
 
@@ -21,7 +21,7 @@ function fmt(ts?: string) {
   return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
 }
 
-export default function IntakePage() {
+function IntakeContent() {
   const { intakes, updateIntake, convertIntakeToCase } = useApp();
   const router = useRouter();
   const sp = useSearchParams();
@@ -188,5 +188,13 @@ export default function IntakePage() {
         </div>
       </div>
     </Shell>
+  );
+}
+
+export default function IntakePage() {
+  return (
+    <Suspense fallback={null}>
+      <IntakeContent />
+    </Suspense>
   );
 }
