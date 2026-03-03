@@ -1,8 +1,10 @@
 # 마약류중독자관리시스템 개발 계획서
 
 > 작성일: 2026-03-03
-> 버전: v1.0
+> 최종 수정: 2026-03-03
+> 버전: v1.2
 > 기반 문서: `1.html` (시스템 개념도), Next.js 프로토타입 분석
+> 변경 이력: v1.1 — Prisma ORM + API Routes 구현 완료 반영 / v1.2 — 6개 메뉴 DB 연동 완료 반영
 
 ---
 
@@ -83,33 +85,95 @@
 
 ## 3. 현재 구현 현황
 
-### 3-1. Next.js 프로토타입 구현 현황
+### 3-1. 화면 구현 및 DB 연동 현황
 
-| 화면 | 라우트 | 구현 수준 | 비고 |
+| 화면 | 라우트 | UI 구현 | DB 연동 | 비고 |
+| --- | --- | --- | --- | --- |
+| 시스템 개요 (모듈 클릭) | `/` | ✅ 완성 | — | 6대 기능 모듈 클릭 라우팅 |
+| 접수/초기개입 | `/intake` | ✅ 데모 | 🔲 미완 | 5단계 스테퍼 (mock 유지) |
+| 사례 목록 | `/cases` | ✅ 기본 | 🔲 미완 | 목록 테이블, 상세 링크 |
+| 사례 상세 (5탭) | `/cases/[id]` | ✅ 구현 | 🔲 미완 | 요약·타임라인·업무·모니터링·종결 탭 |
+| ISP 수립 | `/isp/[caseId]` | ✅ 구현 | 🔲 미완 | 문제목록·목표·개입·검토주기·위기계획 |
+| **대상자 관리** | `/subjects` | ✅ 완성 | ✅ **완료** | DB 검색·페이지네이션 (20건/페이지) |
+| **센터관리** | `/centers` | ✅ 완성 | ✅ **완료** | 활성 케이스 수 + 가동률 실시간 집계 |
+| **연계관리** | `/integrations` | ✅ 완성 | ✅ **완료** | 커넥터 상태·로그·재처리 API 연동 |
+| **통계 대시보드** | `/stats` | ✅ 완성 | ✅ **완료** | KPI 8개 실시간 집계, 월별 추이, 보고서 목록 |
+| **지역자원관리** | `/resources` | ✅ 완성 | ✅ **완료** | 기관명 검색·유형 필터 |
+| **업무지원 (서식)** | `/support` | ✅ 완성 | ✅ **완료** | 파일 업로드·다운로드 API 연동 |
+| **마감관리** | `/closing` | ✅ 완성 | ✅ **완료** | 체크리스트 DB 조회, 마감 처리 이력 저장 |
+| 권한관리 | `/admin/users` | ✅ 기본 | 🔲 미완 | mock 유지 |
+| 재활교육(법정) | `/education/legal` | ✅ 기본 | 🔲 미완 | mock 유지 |
+
+### 3-2. DB 연동 완료 상세 (2026-03-03 기준)
+
+#### Prisma ORM 구성 완료
+
+| 항목 | 내용 |
+| --- | --- |
+| **ORM** | Prisma Client v5.22.0 |
+| **DB** | PostgreSQL 15+ (연결 설정 시 즉시 사용 가능) |
+| **스키마** | `prisma/schema.prisma` — 43개 테이블 모델 정의 |
+| **초기 데이터** | `prisma/seed.ts` — 공통코드·지역·센터·역할·커넥터·마감 체크리스트 |
+| **BigInt 직렬화** | `lib/bigint.ts` `serialize()` — JSON 직렬화 유틸 |
+| **파일 업로드** | `form-uploads/` 디렉토리 — API를 통해서만 접근 가능 (보안) |
+
+#### 구현 완료 API 목록
+
+| API 라우트 | 메서드 | 기능 | 연동 화면 |
 | --- | --- | --- | --- |
-| 시스템 개요 (모듈 클릭) | `/` | ✅ 완성 | 6대 기능 모듈 클릭 라우팅 |
-| 접수/초기개입 | `/intake` | ✅ 데모 | 5단계 스테퍼 (QUEUE→SCREEN→CONSENT→ASSIGN→CONVERT) |
-| 사례 목록 | `/cases` | ✅ 기본 | 목록 테이블, 상세 링크 |
-| 사례 상세 (5탭) | `/cases/[id]` | ✅ 구현 | 요약·타임라인·업무·모니터링·종결 탭 |
-| ISP 수립 | `/isp/[caseId]` | ✅ 구현 | 문제목록·목표·개입·검토주기·위기계획 |
-| 연계관리 | `/integrations` | ✅ 기본 | 연계 상태표·로그·재시도 |
-| 통계 대시보드 | `/stats` | ✅ 기초 | KPI 그리드·MiniChart·보고서 목록 |
+| `/api/subjects` | GET | 대상자 목록 (검색·상태·페이징) | 대상자 관리 |
+| `/api/subjects` | POST | 대상자 등록 (caseNo 자동 생성) | 대상자 관리 |
+| `/api/subjects/[id]` | GET/PATCH | 대상자 상세·수정 | 대상자 관리 |
+| `/api/intakes` | GET/POST | 접수 목록·등록 | 접수/초기개입 |
+| `/api/intakes/[id]` | GET/PATCH | 접수 상세·단계 진행 | 접수/초기개입 |
+| `/api/cases` | GET/POST | 사례 목록·개시 | 사례관리 |
+| `/api/cases/[id]` | GET/PATCH | 사례 상세·수정 | 사례관리 |
+| `/api/cases/[id]/events` | GET/POST | 타임라인 이벤트 | 사례 상세 |
+| `/api/cases/[id]/isp` | GET/POST | ISP 조회·저장 | ISP 수립 |
+| `/api/centers` | GET/POST | 센터 목록·등록 | **센터관리 ✅** |
+| `/api/connectors` | GET | 커넥터 목록 (logs 포함) | **연계관리 ✅** |
+| `/api/connectors/[id]/logs` | GET/POST | 로그 조회·재처리 | **연계관리 ✅** |
+| `/api/stats` | GET | KPI + 월별 통계 + 보고서 | **통계 대시보드 ✅** |
+| `/api/resources` | GET/POST | 지역자원 목록·등록 | **지역자원관리 ✅** |
+| `/api/subjects` | GET | 대상자 목록·검색 | **대상자 관리 ✅** |
+| `/api/forms` | GET/POST | 서식 목록·파일 업로드 | **업무지원 ✅** |
+| `/api/forms/[id]/download` | GET | 파일 다운로드 (path traversal 방어) | **업무지원 ✅** |
+| `/api/closing` | GET | 체크리스트 템플릿 + 마감 이력 | **마감관리 ✅** |
+| `/api/closing` | POST | 마감 처리 (ClosingHistory 저장) | **마감관리 ✅** |
 
-### 3-2. 미구현 기능 (Phase 2~4 대상)
+#### 페이지별 DB 연동 패턴 (공통)
+
+```typescript
+// 공통 패턴: useEffect + useState + fetch
+const [data, setData] = useState([]);
+const [loading, setLoading] = useState(true);
+
+useEffect(() => {
+  fetch("/api/resource?params")
+    .then(r => r.json())
+    .then(setData)
+    .finally(() => setLoading(false));
+}, [deps]);
+```
+
+- **로딩 상태**: `불러오는 중...` 메시지 표시
+- **빈 데이터**: 등록 안내 메시지 표시
+- **검색**: Enter 키 또는 버튼 클릭 시 서버 필터링
+- **페이지네이션**: 대상자 관리 — 20건/페이지, ◀▶ 버튼
+
+### 3-3. 미구현 기능 (Phase 2~4 대상)
 
 | 기능 영역 | 미구현 항목 | 우선순위 |
 | --- | --- | --- |
-| 대상자 관리 | 마약류 중독자 카드 CRUD, 가족/보호자 관리, 회복지원가 관리 | HIGH |
-| 공통 | 센터관리, 권역 관리, RBAC 로그인/인증 | HIGH |
-| 공통 | 업무지원 (서식·공지), 마감관리 (월/분기/연) | MEDIUM |
-| 공통 | 연계관리 I/F 현황 (고도화) | MEDIUM |
-| 재활교육 | 기소유예·수강·이수명령 관리 | MEDIUM |
-| 재활교육 | 찾아가는 재활 프로그램 일정 관리 | LOW |
+| 사례관리 | 접수·사례·ISP 화면 DB 연동 | HIGH |
+| 공통 | RBAC 로그인·인증 시스템 | HIGH |
 | 통계 | 국가통계 보고서 생성·제출 | HIGH |
 | 통계 | 다차원통계 (피벗 분석) | MEDIUM |
 | 통계 | 1342 콜센터 통계 | MEDIUM |
-| 인프라 | 실제 DB 연동 (현재 in-memory mock) | HIGH |
-| 인프라 | 파일 첨부·문서 관리 | MEDIUM |
+| 재활교육 | 기소유예·수강·이수명령 관리 | MEDIUM |
+| 재활교육 | 찾아가는 재활 프로그램 일정 관리 | LOW |
+| 인프라 | `.env` DATABASE_URL 설정 + `npm run db:push` 실행 | HIGH |
+| 인프라 | 파일 첨부·문서 관리 (첨부 고도화) | MEDIUM |
 | 인프라 | 감사로그 (Security Audit) | HIGH |
 
 ---
@@ -319,16 +383,18 @@ User ──── Center ──── Subject ──── Case ──── Cas
 
 ## 7. 기술 스택
 
-### 7-1. 현재 (프로토타입)
+### 7-1. 현재 (Phase 1 — UI + 기반 DB 연동 완료)
 
-| 계층 | 기술 | 비고 |
-| --- | --- | --- |
-| 프레임워크 | Next.js 14 (App Router) | TypeScript |
-| 스타일링 | Tailwind CSS | shadcn/ui 컴포넌트 |
-| 상태관리 | React Context + useState | in-memory mock |
-| 차트 | Recharts 또는 커스텀 | 통계 화면 |
-| 폼 | React Hook Form | 유효성 검증 |
-| 패키지 매니저 | npm | |
+| 계층 | 기술 | 버전 | 비고 |
+| --- | --- | --- | --- |
+| 프레임워크 | Next.js | ^14.2.0 | App Router, TypeScript |
+| ORM | **Prisma Client** | **^5.22.0** | **43개 테이블 스키마 정의** |
+| DB | **PostgreSQL 15+** | — | `.env DATABASE_URL` 연결 |
+| API | **Next.js Route Handlers** | — | **19개 엔드포인트 구현** |
+| 스타일링 | CSS Variables | — | 커스텀 디자인 시스템 |
+| 차트 | MiniChart (커스텀 SVG) | — | 통계 화면 |
+| 파일 저장 | Node.js `fs/promises` | — | `form-uploads/` 디렉토리 |
+| 패키지 매니저 | npm | — | `tsx` dev 런타임 포함 |
 
 ### 7-2. Phase 2 이후 (실 서비스)
 
@@ -502,9 +568,9 @@ GCP Cloud Run (컨테이너 기반, 자동 스케일)
 
 ## 11. 단계별 개발 로드맵
 
-### Phase 1 — UI 프로토타입 완성 (현재 진행)
+### Phase 1 — UI 프로토타입 + 기반 DB 연동 (현재 진행)
 
-**목표**: 전체 기능 화면의 UI/UX를 Next.js로 구현하여 사용성 검증
+**목표**: 전체 기능 화면의 UI/UX를 Next.js로 구현하고 주요 메뉴 DB 연동
 
 | 항목 | 세부 내용 | 상태 |
 | --- | --- | --- |
@@ -514,25 +580,29 @@ GCP Cloud Run (컨테이너 기반, 자동 스케일)
 | ISP 수립 화면 | 목표·개입·위기계획 | ✅ 완료 |
 | 통계 대시보드 | KPI 그리드·차트 | ✅ 완료 |
 | 연계관리 | 연계 상태·로그 | ✅ 완료 |
-| 대상자 관리 UI | 대상자 카드 CRUD 화면 | 🔲 미완 |
-| 공통 관리 UI | 센터·권한·업무지원·마감 화면 | 🔲 미완 |
+| 대상자 관리 UI | 대상자 카드 목록·검색·페이지네이션 | ✅ 완료 |
+| 공통 관리 UI | 센터·업무지원·마감·연계·지역자원 화면 | ✅ 완료 |
+| **Prisma ORM 구성** | `schema.prisma` 43테이블, `prisma generate` | ✅ **완료** |
+| **API Routes 구현** | 19개 API 엔드포인트 구현 (app/api/) | ✅ **완료** |
+| **7개 메뉴 DB 연동** | 센터·연계·통계·지역자원·대상자·서식·마감 | ✅ **완료** |
 | 국가통계 UI | 보고서 생성·제출 화면 | 🔲 미완 |
+| 사례관리 DB 연동 | 접수·사례·ISP 화면 API 연결 | 🔲 미완 |
 | 모바일 반응형 | 태블릿 최적화 레이아웃 | 🔲 미완 |
 
-### Phase 2 — 백엔드 연동 및 DB 구축
+### Phase 2 — 인증·RBAC 및 DB 구축 완성
 
-**목표**: 실제 데이터 저장·조회 가능한 MVP 완성
+**목표**: 실제 운영 가능한 MVP 완성 (로그인, 권한관리, 사례관리 DB 연동)
 
-| 항목 | 세부 내용 |
-| --- | --- |
-| DB 구축 | PostgreSQL 스키마 설계·마이그레이션 |
-| 인증 시스템 | JWT 기반 로그인·세션 관리 |
-| RBAC 구현 | 역할별 메뉴·API 접근 제어 |
-| REST API | 대상자·사례·통계·공통 API 개발 |
-| 파일 업로드 | 첨부파일 저장 (MinIO or Cloud Storage) |
-| 감사 로그 | 주요 이벤트 자동 기록 |
-| 개인정보 암호화 | 주민번호 AES-256, 비밀번호 bcrypt |
-| 스테이징 배포 | Nginx + PM2 + PostgreSQL 서버 구성 |
+| 항목 | 세부 내용 | 상태 |
+| --- | --- | --- |
+| `.env` DB 연결 | `DATABASE_URL` 설정 + `npm run db:push` 실행 | 🔲 미완 |
+| 인증 시스템 | JWT 기반 로그인·세션 관리 | 🔲 미완 |
+| RBAC 구현 | 역할별 메뉴·API 접근 제어 | 🔲 미완 |
+| 사례관리 DB 연동 | `/intake`, `/cases`, `/cases/[id]`, `/isp/[caseId]` API 연결 | 🔲 미완 |
+| 파일 업로드 고도화 | 첨부파일 저장 (MinIO or Cloud Storage) | 🔲 미완 |
+| 감사 로그 | 주요 이벤트 자동 기록 | 🔲 미완 |
+| 개인정보 암호화 | 주민번호 AES-256, 비밀번호 bcrypt | 🔲 미완 |
+| 스테이징 배포 | Nginx + PM2 + PostgreSQL 서버 구성 | 🔲 미완 |
 
 ### Phase 3 — 기능 고도화 및 연계
 
