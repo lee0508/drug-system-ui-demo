@@ -1,13 +1,26 @@
 "use client";
 
 import Shell from "@/components/Shell";
-import { mockSubjects } from "@/lib/mockData";
-import { useState, Suspense } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
+type DrugType = { drugCd: string; isPrimary: boolean };
+type Subject = {
+  subjectId: string;
+  caseNo: string;
+  alias: string;
+  gender: string;
+  birthYear: number;
+  regionCd: string;
+  entryRoute: string;
+  registeredAt: string;
+  status: string;
+  drugTypes: DrugType[];
+};
+
 const TAB_LABELS = [
-  { key: "subject", label: "마약류 중독자" },
-  { key: "family",  label: "가족/보호자" },
+  { key: "subject",   label: "마약류 중독자" },
+  { key: "family",    label: "가족/보호자" },
   { key: "supporter", label: "회복지원가" },
 ];
 
@@ -17,22 +30,46 @@ const ENTRY_LABEL: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   ACTIVE: "활성", MONITORING: "모니터링", CLOSED: "종결",
 };
-
-function fmt(ts: string) {
-  return new Date(ts).toLocaleDateString();
-}
+const DRUG_LABEL: Record<string, string> = {
+  PHILOPON: "필로폰", CANNABIS: "대마", COCAINE: "코카인",
+  HEROIN: "헤로인", ECSTASY: "엑스터시", KETAMINE: "케타민",
+  PSILOCYBIN: "실로시빈", OTHER: "기타",
+};
 
 function SubjectsContent() {
   const sp = useSearchParams();
   const [tab, setTab] = useState(sp.get("tab") ?? "subject");
-  const [search, setSearch] = useState("");
 
-  const filtered = mockSubjects.filter(
-    (s) =>
-      s.alias.includes(search) ||
-      s.caseNo.toLowerCase().includes(search.toLowerCase()) ||
-      s.region.includes(search)
-  );
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const LIMIT = 20;
+
+  const load = useCallback(() => {
+    setLoading(true);
+    const params = new URLSearchParams({ page: String(page), limit: String(LIMIT) });
+    if (search) params.set("search", search);
+    fetch(`/api/subjects?${params}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setSubjects(data.items ?? []);
+        setTotal(data.total ?? 0);
+      })
+      .finally(() => setLoading(false));
+  }, [page, search]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSearch = () => {
+    setPage(1);
+    setSearch(searchInput);
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
   return (
     <Shell title="대상자 관리" subtitle="마약류 중독자 카드 · 가족/보호자 · 회복지원가">
@@ -59,49 +96,68 @@ function SubjectsContent() {
         <div className="card">
           <div className="card-h">
             <span>대상자 목록</span>
-            <span className="pill">{filtered.length}명</span>
+            <span className="pill">총 {total}명</span>
           </div>
           <div className="card-b">
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
               <input
                 className="input"
-                placeholder="가명 / 관리번호 / 지역 검색"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                placeholder="가명 / 관리번호 / 지역 검색 (Enter)"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                 style={{ flex: 1 }}
               />
+              <button className="btn" onClick={handleSearch}>검색</button>
               <button className="btn primary">+ 신규 등록</button>
             </div>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>관리번호</th>
-                  <th>가명</th>
-                  <th>성별/출생</th>
-                  <th>지역</th>
-                  <th>마약유형</th>
-                  <th>유입경로</th>
-                  <th>등록일</th>
-                  <th>상태</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((s) => (
-                  <tr key={s.id}>
-                    <td style={{ fontWeight: 1000 }}>{s.caseNo}</td>
-                    <td>{s.alias}</td>
-                    <td>{s.gender === "M" ? "남" : "여"} / {s.birthYear}</td>
-                    <td>{s.region}</td>
-                    <td>{s.drugTypes.join(", ")}</td>
-                    <td>{ENTRY_LABEL[s.entryRoute]}</td>
-                    <td>{fmt(s.registeredAt)}</td>
-                    <td><span className="badge">{STATUS_LABEL[s.status]}</span></td>
-                    <td><button className="btn">상세</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+            {loading ? (
+              <div className="muted" style={{ textAlign: "center", padding: 32 }}>불러오는 중...</div>
+            ) : subjects.length === 0 ? (
+              <div className="muted" style={{ textAlign: "center", padding: 32 }}>대상자가 없습니다.</div>
+            ) : (
+              <>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>관리번호</th>
+                      <th>가명</th>
+                      <th>성별/출생</th>
+                      <th>지역</th>
+                      <th>마약유형</th>
+                      <th>유입경로</th>
+                      <th>등록일</th>
+                      <th>상태</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {subjects.map((s) => (
+                      <tr key={s.subjectId}>
+                        <td style={{ fontWeight: 1000 }}>{s.caseNo}</td>
+                        <td>{s.alias}</td>
+                        <td>{s.gender === "M" ? "남" : "여"} / {s.birthYear}</td>
+                        <td>{s.regionCd}</td>
+                        <td>{s.drugTypes.map((d) => DRUG_LABEL[d.drugCd] ?? d.drugCd).join(", ")}</td>
+                        <td>{ENTRY_LABEL[s.entryRoute] ?? s.entryRoute}</td>
+                        <td>{new Date(s.registeredAt).toLocaleDateString()}</td>
+                        <td><span className="badge">{STATUS_LABEL[s.status] ?? s.status}</span></td>
+                        <td><button className="btn">상세</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* 페이지네이션 */}
+                <div style={{ display: "flex", gap: 6, justifyContent: "center", marginTop: 12 }}>
+                  <button className="btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>◀</button>
+                  <span style={{ lineHeight: "32px", fontSize: 13 }}>{page} / {totalPages}</span>
+                  <button className="btn" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>▶</button>
+                </div>
+              </>
+            )}
+
             <div className="muted" style={{ marginTop: 8 }}>
               ※ 실명 대신 가명으로 표시됩니다 (개인정보보호법 준수).
             </div>
@@ -148,7 +204,6 @@ function SubjectsContent() {
           </div>
         </div>
       )}
-
     </Shell>
   );
 }

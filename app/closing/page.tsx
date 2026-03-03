@@ -1,40 +1,94 @@
 "use client";
 
 import Shell from "@/components/Shell";
-import { useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+
+type TplItem = {
+  tplId: string;
+  closingType: string;
+  checkItem: string;
+  sortOrder: number;
+};
+
+type HistoryRow = {
+  closingId: string;
+  closingType: string;
+  periodLabel: string;
+  status: string;
+  closedAt?: string;
+  closedBy?: string;
+  createdAt: string;
+};
 
 const PERIODS = [
-  { key: "monthly",   label: "월간 마감" },
-  { key: "quarterly", label: "분기 마감" },
-  { key: "annual",    label: "연간 마감" },
+  { key: "MONTHLY",   label: "월간 마감" },
+  { key: "QUARTERLY", label: "분기 마감" },
+  { key: "ANNUAL",    label: "연간 마감" },
 ];
 
-type CheckItem = { id: string; label: string; done: boolean };
+const TYPE_LABEL: Record<string, string> = {
+  MONTHLY: "월간", QUARTERLY: "분기", ANNUAL: "연간",
+};
 
-const MONTHLY_CHECKS: CheckItem[] = [
-  { id: "m1", label: "이달 접수 건수 확정 및 통계 반영", done: true },
-  { id: "m2", label: "케이스 현황 최종 확인 (NEW/IN_PROGRESS/MONITORING/CLOSED)", done: true },
-  { id: "m3", label: "국가통계 월간 지표 입력 완료", done: false },
-  { id: "m4", label: "연계 로그 이상 여부 확인", done: false },
-  { id: "m5", label: "보고서 초안 생성 및 담당자 검토 요청", done: false },
-];
-
-const HISTORY = [
-  { period: "2026-02", type: "월간", closedAt: "2026-03-02", operator: "관리자", status: "완료" },
-  { period: "2025-Q4", type: "분기", closedAt: "2026-01-10", operator: "관리자", status: "완료" },
-  { period: "2025-12", type: "월간", closedAt: "2026-01-03", operator: "관리자", status: "완료" },
-];
+function getPeriodLabel(type: string) {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const q = Math.ceil((now.getMonth() + 1) / 3);
+  if (type === "MONTHLY") return `${y}-${m}`;
+  if (type === "QUARTERLY") return `${y}-Q${q}`;
+  return String(y);
+}
 
 export default function ClosingPage() {
-  const [tab, setTab] = useState("monthly");
-  const [checks, setChecks] = useState(MONTHLY_CHECKS);
+  const [tab, setTab] = useState("MONTHLY");
+  const [templates, setTemplates] = useState<TplItem[]>([]);
+  const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [checks, setChecks] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
-  const toggle = (id: string) => {
-    setChecks((prev) => prev.map((c) => c.id === id ? { ...c, done: !c.done } : c));
+  const load = useCallback(() => {
+    setLoading(true);
+    fetch(`/api/closing?type=${tab}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const tpls: TplItem[] = data.templates ?? [];
+        setTemplates(tpls);
+        setHistory(data.history ?? []);
+        const init: Record<string, boolean> = {};
+        tpls.forEach((t) => { init[t.tplId] = false; });
+        setChecks(init);
+      })
+      .finally(() => setLoading(false));
+  }, [tab]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const toggle = (id: string) =>
+    setChecks((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  const doneCount = Object.values(checks).filter(Boolean).length;
+  const allDone = templates.length > 0 && doneCount === templates.length;
+
+  const handleClose = async () => {
+    if (!allDone) return;
+    setSubmitting(true);
+    try {
+      await fetch("/api/closing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          closingType: tab,
+          periodLabel: getPeriodLabel(tab),
+          closedBy: "관리자",
+        }),
+      });
+      load();
+    } finally {
+      setSubmitting(false);
+    }
   };
-
-  const doneCount = checks.filter((c) => c.done).length;
-  const allDone = doneCount === checks.length;
 
   return (
     <Shell title="마감관리" subtitle="월간 · 분기 · 연간 마감 처리 및 이력">
@@ -61,58 +115,85 @@ export default function ClosingPage() {
         <div className="card">
           <div className="card-h">
             <span>마감 체크리스트</span>
-            <span className="pill">{doneCount} / {checks.length}</span>
+            <span className="pill">{doneCount} / {templates.length}</span>
           </div>
           <div className="card-b" style={{ display: "grid", gap: 8 }}>
-            {checks.map((c) => (
-              <label
-                key={c.id}
-                style={{
-                  display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
-                  padding: "10px 12px", borderRadius: 10,
-                  border: "1px solid var(--line)",
-                  background: c.done ? "#f0fdf4" : "#fff",
-                }}
-              >
-                <input type="checkbox" checked={c.done} onChange={() => toggle(c.id)} style={{ width: 16, height: 16 }} />
-                <span style={{ fontWeight: c.done ? 400 : 1000, textDecoration: c.done ? "line-through" : "none", color: c.done ? "var(--muted)" : "var(--ink)" }}>
-                  {c.label}
-                </span>
-              </label>
-            ))}
+            {loading ? (
+              <div className="muted" style={{ textAlign: "center", padding: 24 }}>불러오는 중...</div>
+            ) : templates.length === 0 ? (
+              <div className="muted" style={{ textAlign: "center", padding: 24 }}>체크리스트 항목이 없습니다.</div>
+            ) : (
+              templates.map((t) => (
+                <label
+                  key={t.tplId}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
+                    padding: "10px 12px", borderRadius: 10,
+                    border: "1px solid var(--line)",
+                    background: checks[t.tplId] ? "#f0fdf4" : "#fff",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!checks[t.tplId]}
+                    onChange={() => toggle(t.tplId)}
+                    style={{ width: 16, height: 16 }}
+                  />
+                  <span style={{
+                    fontWeight: checks[t.tplId] ? 400 : 1000,
+                    textDecoration: checks[t.tplId] ? "line-through" : "none",
+                    color: checks[t.tplId] ? "var(--muted)" : "var(--ink)",
+                  }}>
+                    {t.checkItem}
+                  </span>
+                </label>
+              ))
+            )}
 
             <div className="hr" />
 
             <button
               className="btn primary"
-              disabled={!allDone}
+              disabled={!allDone || submitting}
               style={{ opacity: allDone ? 1 : 0.4 }}
+              onClick={handleClose}
             >
-              {allDone ? "✅ 마감 처리 실행" : `마감 처리 (${checks.length - doneCount}개 항목 미완료)`}
+              {submitting ? "처리 중..." : allDone ? "✅ 마감 처리 실행" : `마감 처리 (${templates.length - doneCount}개 항목 미완료)`}
             </button>
             <div className="muted">※ 모든 항목 완료 후 마감 처리가 가능합니다.</div>
           </div>
         </div>
 
         <div className="card">
-          <div className="card-h"><span>마감 이력</span></div>
+          <div className="card-h">
+            <span>마감 이력</span>
+            <span className="pill">{history.length}건</span>
+          </div>
           <div className="card-b">
-            <table className="table">
-              <thead>
-                <tr><th>기간</th><th>유형</th><th>처리일</th><th>처리자</th><th>상태</th></tr>
-              </thead>
-              <tbody>
-                {HISTORY.map((h) => (
-                  <tr key={h.period}>
-                    <td style={{ fontWeight: 1000 }}>{h.period}</td>
-                    <td>{h.type}</td>
-                    <td>{h.closedAt}</td>
-                    <td>{h.operator}</td>
-                    <td><span className="badge" style={{ background: "#16a34a" }}>{h.status}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {history.length === 0 ? (
+              <div className="muted" style={{ textAlign: "center", padding: 24 }}>마감 이력이 없습니다.</div>
+            ) : (
+              <table className="table">
+                <thead>
+                  <tr><th>기간</th><th>유형</th><th>처리일</th><th>처리자</th><th>상태</th></tr>
+                </thead>
+                <tbody>
+                  {history.map((h) => (
+                    <tr key={h.closingId}>
+                      <td style={{ fontWeight: 1000 }}>{h.periodLabel}</td>
+                      <td>{TYPE_LABEL[h.closingType] ?? h.closingType}</td>
+                      <td>{h.closedAt ? new Date(h.closedAt).toLocaleDateString() : "-"}</td>
+                      <td>{h.closedBy ?? "-"}</td>
+                      <td>
+                        <span className="badge" style={{ background: h.status === "CLOSED" ? "#16a34a" : undefined }}>
+                          {h.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
 
