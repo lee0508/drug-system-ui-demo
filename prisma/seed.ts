@@ -103,8 +103,11 @@ async function main() {
     { closingType: "ANNUAL", checkItem: "연간 실적 보고서 제출", sortOrder: 1 },
     { closingType: "ANNUAL", checkItem: "대상자 상태 일괄 검토 완료", sortOrder: 2 },
   ];
-  for (const t of tplItems) {
-    await prisma.closingChecklistTpl.create({ data: t });
+  const existingTplCount = await prisma.closingChecklistTpl.count();
+  if (existingTplCount === 0) {
+    for (const t of tplItems) {
+      await prisma.closingChecklistTpl.create({ data: t });
+    }
   }
 
   console.log("✅ Seed completed!");
