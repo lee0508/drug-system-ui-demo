@@ -1,0 +1,761 @@
+// =====================================================
+// 마약류중독자관리시스템 — Prisma Schema
+// Target DB : PostgreSQL 15+
+// Generated : 2026-03-03
+// =====================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===================================================================
+// 00. 공통 코드
+// ===================================================================
+
+model CodeGroup {
+  groupCd     String   @id @map("group_cd")
+  groupNm     String   @map("group_nm")
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  codes Code[]
+
+  @@map("tb_code_group")
+}
+
+model Code {
+  groupCd  String @map("group_cd")
+  code     String
+  codeNm   String @map("code_nm")
+  codeNmEn String? @map("code_nm_en")
+  extra1   String? @map("extra1")
+  sortOrder Int    @default(0) @map("sort_order")
+  isActive  Boolean @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  group CodeGroup @relation(fields: [groupCd], references: [groupCd])
+
+  @@id([groupCd, code])
+  @@map("tb_code")
+}
+
+// ===================================================================
+// 01. 센터 관리
+// ===================================================================
+
+model Region {
+  regionCd  String   @id @map("region_cd")
+  regionNm  String   @map("region_nm")
+  sortOrder Int      @default(0) @map("sort_order")
+
+  centers Center[]
+
+  @@map("tb_region")
+}
+
+model Center {
+  centerId  String   @id @map("center_id")
+  centerNm  String   @map("center_nm")
+  regionCd  String   @map("region_cd")
+  address   String?
+  phone     String?
+  manager   String?
+  capacity  Int      @default(30)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  region Region @relation(fields: [regionCd], references: [regionCd])
+  users  User[]
+  cases  Case[]
+
+  @@map("tb_center")
+}
+
+// ===================================================================
+// 02. 권한 관리
+// ===================================================================
+
+model Role {
+  roleId String @id @map("role_id")
+  roleNm String @map("role_nm")
+
+  users User[]
+
+  @@map("tb_role")
+}
+
+model User {
+  userId    String   @id @map("user_id")
+  roleId    String   @map("role_id")
+  centerId  String?  @map("center_id")
+  userNm    String   @map("user_nm")
+  email     String?  @unique
+  pwdHash   String?  @map("pwd_hash")
+  isActive  Boolean  @default(true) @map("is_active")
+  isDeleted Boolean  @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  role      Role       @relation(fields: [roleId], references: [roleId])
+  center    Center?    @relation(fields: [centerId], references: [centerId])
+  loginLogs UserLoginLog[]
+
+  @@map("tb_user")
+}
+
+model UserLoginLog {
+  logId     BigInt   @id @default(autoincrement()) @map("log_id")
+  userId    String   @map("user_id")
+  loginAt   DateTime @default(now()) @map("login_at")
+  ipAddr    String?  @map("ip_addr")
+  result    String   @default("SUCCESS")
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@map("tb_user_login_log")
+}
+
+model AuditLog {
+  auditId   BigInt   @id @default(autoincrement()) @map("audit_id")
+  userId    String?  @map("user_id")
+  tableNm   String   @map("table_nm")
+  recordId  String   @map("record_id")
+  action    String   // INSERT | UPDATE | DELETE
+  oldData   Json?    @map("old_data")
+  newData   Json?    @map("new_data")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("tb_audit_log")
+}
+
+// ===================================================================
+// 03. 대상자 관리
+// ===================================================================
+
+model Subject {
+  subjectId    String    @id @map("subject_id")
+  caseNo       String    @unique @map("case_no")
+  alias        String
+  gender       String    // M | F
+  birthYear    Int       @map("birth_year")
+  regionCd     String    @map("region_cd")
+  entryRoute   String    @map("entry_route")  // 1342 | LEGAL | SELF | AGENCY
+  status       String    @default("ACTIVE")   // ACTIVE | MONITORING | CLOSED
+  isDeleted    Boolean   @default(false) @map("is_deleted")
+  deletedAt    DateTime? @map("deleted_at")
+  registeredAt DateTime  @default(now()) @map("registered_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  createdBy    String?   @map("created_by")
+
+  drugTypes   SubjectDrug[]
+  pii         SubjectPii?
+  families    Family[]
+  assignments SupporterAssignment[]
+  intakes     Intake[]
+  eduLegals   EduLegal[]
+
+  @@map("tb_subject")
+}
+
+model SubjectDrug {
+  id        BigInt  @id @default(autoincrement())
+  subjectId String  @map("subject_id")
+  drugCd    String  @map("drug_cd")
+  isPrimary Boolean @default(false) @map("is_primary")
+
+  subject Subject @relation(fields: [subjectId], references: [subjectId])
+
+  @@map("tb_subject_drug")
+}
+
+/// 개인정보 암호화 분리 테이블 (AES-256 암호화 적용)
+model SubjectPii {
+  subjectId   String   @id @map("subject_id")
+  fullNameEnc String?  @map("full_name_enc")   // 실명 (암호화)
+  rrnEnc      String?  @map("rrn_enc")          // 주민등록번호 (암호화)
+  phoneEnc    String?  @map("phone_enc")         // 연락처 (암호화)
+  addrEnc     String?  @map("addr_enc")          // 주소 (암호화)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  subject Subject @relation(fields: [subjectId], references: [subjectId])
+
+  @@map("tb_subject_pii")
+}
+
+model Family {
+  familyId  BigInt   @id @default(autoincrement()) @map("family_id")
+  subjectId String   @map("subject_id")
+  relation  String
+  phoneEnc  String?  @map("phone_enc")
+  isLiving  Boolean? @map("is_living")
+  consentYn Boolean  @default(false) @map("consent_yn")
+  isDeleted Boolean  @default(false) @map("is_deleted")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  subject Subject @relation(fields: [subjectId], references: [subjectId])
+
+  @@map("tb_family")
+}
+
+model Supporter {
+  supporterId String   @id @map("supporter_id")
+  supporterNm String   @map("supporter_nm")
+  phoneEnc    String?  @map("phone_enc")
+  centerId    String?  @map("center_id")
+  isActive    Boolean  @default(true) @map("is_active")
+  isDeleted   Boolean  @default(false) @map("is_deleted")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  assignments SupporterAssignment[]
+
+  @@map("tb_supporter")
+}
+
+model SupporterAssignment {
+  assignId    BigInt    @id @default(autoincrement()) @map("assign_id")
+  supporterId String    @map("supporter_id")
+  subjectId   String    @map("subject_id")
+  startDate   DateTime  @map("start_date")
+  endDate     DateTime? @map("end_date")
+  isActive    Boolean   @default(true) @map("is_active")
+
+  supporter Supporter @relation(fields: [supporterId], references: [supporterId])
+  subject   Subject   @relation(fields: [subjectId], references: [subjectId])
+
+  @@map("tb_supporter_assignment")
+}
+
+// ===================================================================
+// 04. 접수 / 초기개입
+// ===================================================================
+
+model Intake {
+  intakeId        BigInt    @id @default(autoincrement()) @map("intake_id")
+  intakeNo        String    @unique @map("intake_no")
+  source          String    // 1342 | ONLINE | WALKIN | AGENCY
+  regionCd        String?   @map("region_cd")
+  triage          String    @default("LOW")    // LOW | MID | HIGH | EMERG
+  consent         Boolean   @default(false)
+  summary         String?
+  preferredCenter String?   @map("preferred_center")
+  assignedCenter  String?   @map("assigned_center")
+  intakeStep      String    @default("QUEUE") @map("intake_step") // QUEUE|SCREEN|CONSENT|ASSIGN|CONVERT
+  subjectId       String?   @map("subject_id")
+  convertedCaseId BigInt?   @map("converted_case_id")
+  isDeleted       Boolean   @default(false) @map("is_deleted")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  createdBy       String?   @map("created_by")
+
+  subject   Subject?      @relation(fields: [subjectId], references: [subjectId])
+  case      Case?         @relation(fields: [convertedCaseId], references: [caseId])
+  stepLogs  IntakeStepLog[]
+
+  @@map("tb_intake")
+}
+
+model IntakeStepLog {
+  logId    BigInt   @id @default(autoincrement()) @map("log_id")
+  intakeId BigInt   @map("intake_id")
+  step     String
+  doneAt   DateTime @default(now()) @map("done_at")
+  doneBy   String?  @map("done_by")
+  note     String?
+
+  intake Intake @relation(fields: [intakeId], references: [intakeId])
+
+  @@map("tb_intake_step_log")
+}
+
+// ===================================================================
+// 05. 사례 관리
+// ===================================================================
+
+model Case {
+  caseId       BigInt    @id @default(autoincrement()) @map("case_id")
+  subjectId    String    @map("subject_id")
+  centerId     String?   @map("center_id")
+  subjectLabel String    @map("subject_label")  // 가명 표시용
+  status       String    @default("NEW")  // NEW | IN_PROGRESS | MONITORING | CLOSED
+  triage       String    @default("LOW")
+  isDeleted    Boolean   @default(false) @map("is_deleted")
+  deletedAt    DateTime? @map("deleted_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  createdBy    String?   @map("created_by")
+
+  center      Center?          @relation(fields: [centerId], references: [centerId])
+  events      CaseEvent[]
+  tasks       CaseTask[]
+  isps        Isp[]
+  counselings Counseling[]
+  supports    CaseSupport[]
+  monitorings CaseMonitoring[]
+  closing     CaseClosing?
+  intakes     Intake[]
+
+  @@map("tb_case")
+}
+
+model CaseEvent {
+  eventId   BigInt   @id @default(autoincrement()) @map("event_id")
+  caseId    BigInt   @map("case_id")
+  eventType String   @map("event_type") // INTAKE|ASSESSMENT|ISP|INTERVENTION|REFERRAL|MONITORING|CLOSE
+  title     String
+  note      String?
+  eventAt   DateTime @default(now()) @map("event_at")
+  createdBy String?  @map("created_by")
+
+  case Case @relation(fields: [caseId], references: [caseId])
+
+  @@map("tb_case_event")
+}
+
+model CaseTask {
+  taskId    BigInt    @id @default(autoincrement()) @map("task_id")
+  caseId    BigInt    @map("case_id")
+  title     String
+  dueAt     DateTime? @map("due_at")
+  status    String    @default("TODO")  // TODO | DOING | DONE
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  case Case @relation(fields: [caseId], references: [caseId])
+
+  @@map("tb_case_task")
+}
+
+model Counseling {
+  counselId BigInt   @id @default(autoincrement()) @map("counsel_id")
+  caseId    BigInt   @map("case_id")
+  counselAt DateTime @map("counsel_at")
+  duration  Int?
+  method    String?
+  summary   String?
+  isDeleted Boolean  @default(false) @map("is_deleted")
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  case Case @relation(fields: [caseId], references: [caseId])
+
+  @@map("tb_counseling")
+}
+
+model CaseSupport {
+  supportId    BigInt    @id @default(autoincrement()) @map("support_id")
+  caseId       BigInt    @map("case_id")
+  supportType  String    @map("support_type")
+  resourceId   BigInt?   @map("resource_id")
+  referralDate DateTime? @map("referral_date")
+  note         String?
+  isDeleted    Boolean   @default(false) @map("is_deleted")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  case Case @relation(fields: [caseId], references: [caseId])
+
+  @@map("tb_case_support")
+}
+
+model CaseMonitoring {
+  monitorId   BigInt    @id @default(autoincrement()) @map("monitor_id")
+  caseId      BigInt    @map("case_id")
+  monitorAt   DateTime  @map("monitor_at")
+  method      String?
+  condition   String?
+  note        String?
+  nextMonitor DateTime? @map("next_monitor")
+  isDeleted   Boolean   @default(false) @map("is_deleted")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+
+  case Case @relation(fields: [caseId], references: [caseId])
+
+  @@map("tb_case_monitoring")
+}
+
+model CaseClosing {
+  closingId   BigInt   @id @default(autoincrement()) @map("closing_id")
+  caseId      BigInt   @unique @map("case_id")
+  closingType String   @map("closing_type")
+  closingDate DateTime @map("closing_date")
+  reason      String?
+  outcome     String?
+  isDeleted   Boolean  @default(false) @map("is_deleted")
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String?  @map("created_by")
+
+  case Case @relation(fields: [caseId], references: [caseId])
+
+  @@map("tb_case_closing")
+}
+
+// ===================================================================
+// 06. ISP (개인서비스계획)
+// ===================================================================
+
+model Isp {
+  ispId       BigInt   @id @default(autoincrement()) @map("isp_id")
+  caseId      BigInt   @map("case_id")
+  version     Int      @default(1)
+  isCurrent   Boolean  @default(true) @map("is_current")
+  reviewCycle String   @map("review_cycle")  // WEEKLY | MONTHLY | QUARTERLY
+  crisisPlan  String?  @map("crisis_plan")
+  isDeleted   Boolean  @default(false) @map("is_deleted")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdBy   String?  @map("created_by")
+
+  case          Case              @relation(fields: [caseId], references: [caseId])
+  problems      IspProblem[]
+  goals         IspGoal[]
+  interventions IspIntervention[]
+
+  @@map("tb_isp")
+}
+
+model IspProblem {
+  problemId BigInt @id @default(autoincrement()) @map("problem_id")
+  ispId     BigInt @map("isp_id")
+  sortOrder Int    @default(0) @map("sort_order")
+  problem   String
+
+  isp Isp @relation(fields: [ispId], references: [ispId])
+
+  @@map("tb_isp_problem")
+}
+
+model IspGoal {
+  goalId    BigInt    @id @default(autoincrement()) @map("goal_id")
+  ispId     BigInt    @map("isp_id")
+  horizon   String    // SHORT | MID | LONG
+  goal      String
+  metric    String?
+  due       DateTime?
+  status    String    @default("IN_PROGRESS")
+
+  isp Isp @relation(fields: [ispId], references: [ispId])
+
+  @@map("tb_isp_goal")
+}
+
+model IspIntervention {
+  interventionId BigInt  @id @default(autoincrement()) @map("intervention_id")
+  ispId          BigInt  @map("isp_id")
+  category       String  // COUNSELING | PROGRAM | MEDICAL | MHIS | LEGAL | WELFARE | FAMILY
+  action         String
+  owner          String?
+  schedule       String?
+
+  isp Isp @relation(fields: [ispId], references: [ispId])
+
+  @@map("tb_isp_intervention")
+}
+
+// ===================================================================
+// 07. 재활교육
+// ===================================================================
+
+model EduLegal {
+  eduId      BigInt    @id @default(autoincrement()) @map("edu_id")
+  subjectId  String    @map("subject_id")
+  legalType  String    @map("legal_type")  // PROSECUTION_SUSPENDED | TRAINING | COMPLETION
+  courtNm    String?   @map("court_nm")
+  orderDate  DateTime? @map("order_date")
+  startDate  DateTime? @map("start_date")
+  endDate    DateTime? @map("end_date")
+  hours      Int?
+  status     String    @default("SCHEDULED")
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  subject     Subject              @relation(fields: [subjectId], references: [subjectId])
+  attendances EduLegalAttendance[]
+
+  @@map("tb_edu_legal")
+}
+
+model EduLegalAttendance {
+  attendId   BigInt   @id @default(autoincrement()) @map("attend_id")
+  eduId      BigInt   @map("edu_id")
+  attendDate DateTime @map("attend_date")
+  hours      Int?
+  note       String?
+
+  edu EduLegal @relation(fields: [eduId], references: [eduId])
+
+  @@map("tb_edu_legal_attendance")
+}
+
+model EduProgram {
+  programId   BigInt   @id @default(autoincrement()) @map("program_id")
+  programNm   String   @map("program_nm")
+  programType String   @map("program_type")
+  centerId    String?  @map("center_id")
+  capacity    Int?
+  isActive    Boolean  @default(true) @map("is_active")
+  isDeleted   Boolean  @default(false) @map("is_deleted")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  sessions EduSession[]
+
+  @@map("tb_edu_program")
+}
+
+model EduSession {
+  sessionId   BigInt   @id @default(autoincrement()) @map("session_id")
+  programId   BigInt   @map("program_id")
+  sessionDate DateTime @map("session_date")
+  instructor  String?
+  location    String?
+  note        String?
+
+  program     EduProgram         @relation(fields: [programId], references: [programId])
+  attendances EduSessionAttend[]
+
+  @@map("tb_edu_session")
+}
+
+model EduSessionAttend {
+  attendId  BigInt  @id @default(autoincrement()) @map("attend_id")
+  sessionId BigInt  @map("session_id")
+  subjectId String  @map("subject_id")
+  attended  Boolean @default(true)
+  note      String?
+
+  session EduSession @relation(fields: [sessionId], references: [sessionId])
+
+  @@map("tb_edu_session_attend")
+}
+
+model EduOutreach {
+  outreachId   BigInt   @id @default(autoincrement()) @map("outreach_id")
+  outreachDate DateTime @map("outreach_date")
+  location     String?
+  staffCount   Int?     @map("staff_count")
+  targetCount  Int?     @map("target_count")
+  note         String?
+  isDeleted    Boolean  @default(false) @map("is_deleted")
+  createdAt    DateTime @default(now()) @map("created_at")
+  createdBy    String?  @map("created_by")
+
+  @@map("tb_edu_outreach")
+}
+
+// ===================================================================
+// 08. 지역 자원
+// ===================================================================
+
+model Resource {
+  resourceId   BigInt   @id @default(autoincrement()) @map("resource_id")
+  resourceNm   String   @map("resource_nm")
+  resourceType String   @map("resource_type")  // MEDICAL | WELFARE | LEGAL | EMPLOYMENT | SELF_HELP
+  regionCd     String?  @map("region_cd")
+  phone        String?
+  address      String?
+  note         String?
+  isActive     Boolean  @default(true) @map("is_active")
+  isDeleted    Boolean  @default(false) @map("is_deleted")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  referrals ResourceReferral[]
+
+  @@map("tb_resource")
+}
+
+model ResourceReferral {
+  referralId   BigInt   @id @default(autoincrement()) @map("referral_id")
+  resourceId   BigInt   @map("resource_id")
+  caseId       BigInt   @map("case_id")
+  referralDate DateTime @map("referral_date")
+  purpose      String?
+  result       String?
+  isDeleted    Boolean  @default(false) @map("is_deleted")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  resource Resource @relation(fields: [resourceId], references: [resourceId])
+
+  @@map("tb_resource_referral")
+}
+
+// ===================================================================
+// 09. 통계 관리
+// ===================================================================
+
+model StatsMonthly {
+  statsId        BigInt   @id @default(autoincrement()) @map("stats_id")
+  yyyymm         String   // '202603'
+  centerId       String?  @map("center_id")
+  regionCd       String?  @map("region_cd")
+  intakeTotal    Int      @default(0) @map("intake_total")
+  intake1342     Int      @default(0) @map("intake_1342")
+  intakeLegal    Int      @default(0) @map("intake_legal")
+  intakeAgency   Int      @default(0) @map("intake_agency")
+  intakeSelf     Int      @default(0) @map("intake_self")
+  caseNew        Int      @default(0) @map("case_new")
+  caseInProgress Int      @default(0) @map("case_in_progress")
+  caseMonitoring Int      @default(0) @map("case_monitoring")
+  caseClosed     Int      @default(0) @map("case_closed")
+  eduLegalCnt    Int      @default(0) @map("edu_legal_cnt")
+  eduShortCnt    Int      @default(0) @map("edu_short_cnt")
+  eduOutreachCnt Int      @default(0) @map("edu_outreach_cnt")
+  counselCnt     Int      @default(0) @map("counsel_cnt")
+  generatedAt    DateTime @default(now()) @map("generated_at")
+
+  @@unique([yyyymm, centerId])
+  @@map("tb_stats_monthly")
+}
+
+model Report {
+  reportId    BigInt    @id @default(autoincrement()) @map("report_id")
+  reportType  String    @map("report_type")  // MONTHLY | QUARTERLY | ANNUAL | NATIONAL | AD_HOC
+  reportTitle String?   @map("report_title")
+  periodFrom  DateTime? @map("period_from")
+  periodTo    DateTime? @map("period_to")
+  centerId    String?   @map("center_id")
+  filePath    String?   @map("file_path")
+  status      String    @default("DRAFT")  // DRAFT | SUBMITTED | APPROVED
+  submittedAt DateTime? @map("submitted_at")
+  approvedBy  String?   @map("approved_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+
+  @@map("tb_report")
+}
+
+// ===================================================================
+// 10. 마감 관리
+// ===================================================================
+
+model ClosingChecklistTpl {
+  tplId       BigInt   @id @default(autoincrement()) @map("tpl_id")
+  closingType String   @map("closing_type")  // MONTHLY | QUARTERLY | ANNUAL
+  checkItem   String   @map("check_item")
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+
+  checkDones ClosingCheckDone[]
+
+  @@map("tb_closing_checklist_tpl")
+}
+
+model ClosingHistory {
+  closingId   BigInt    @id @default(autoincrement()) @map("closing_id")
+  closingType String    @map("closing_type")
+  periodLabel String    @map("period_label")  // '2026-02'
+  centerId    String?   @map("center_id")
+  status      String    @default("OPEN")  // OPEN | CLOSED
+  closedAt    DateTime? @map("closed_at")
+  closedBy    String?   @map("closed_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  checks ClosingCheckDone[]
+
+  @@map("tb_closing_history")
+}
+
+model ClosingCheckDone {
+  doneId    BigInt    @id @default(autoincrement()) @map("done_id")
+  closingId BigInt    @map("closing_id")
+  tplId     BigInt    @map("tpl_id")
+  doneYn    Boolean   @default(false) @map("done_yn")
+  doneAt    DateTime? @map("done_at")
+  doneBy    String?   @map("done_by")
+
+  history ClosingHistory      @relation(fields: [closingId], references: [closingId])
+  tpl     ClosingChecklistTpl @relation(fields: [tplId], references: [tplId])
+
+  @@map("tb_closing_check_done")
+}
+
+// ===================================================================
+// 11. 연계 관리
+// ===================================================================
+
+model Connector {
+  connectorId String    @id @map("connector_id")
+  connectorNm String    @map("connector_nm")
+  groupCd     String    @map("group_cd")  // EA | ADMIN
+  endpointUrl String?   @map("endpoint_url")
+  status      String    @default("OK")   // OK | DEGRADED | DOWN
+  lastSyncAt  DateTime? @map("last_sync_at")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  logs IntegrationLog[]
+
+  @@map("tb_connector")
+}
+
+model IntegrationLog {
+  logId       BigInt   @id @default(autoincrement()) @map("log_id")
+  connectorId String   @map("connector_id")
+  direction   String   // OUT | IN
+  message     String?
+  payload     Json?
+  result      String   // SUCCESS | FAIL
+  errorMsg    String?  @map("error_msg")
+  retryCount  Int      @default(0) @map("retry_count")
+  retriedFrom BigInt?  @map("retried_from")
+  loggedAt    DateTime @default(now()) @map("logged_at")
+
+  connector Connector @relation(fields: [connectorId], references: [connectorId])
+
+  @@map("tb_integration_log")
+}
+
+// ===================================================================
+// 12. 업무 지원
+// ===================================================================
+
+model FormTemplate {
+  formId    BigInt   @id @default(autoincrement()) @map("form_id")
+  formNm    String   @map("form_nm")
+  fileExt   String?  @map("file_ext")
+  filePath  String?  @map("file_path")
+  version   String?
+  isActive  Boolean  @default(true) @map("is_active")
+  isDeleted Boolean  @default(false) @map("is_deleted")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  createdBy String?  @map("created_by")
+
+  @@map("tb_form_template")
+}
+
+model Notice {
+  noticeId    BigInt    @id @default(autoincrement()) @map("notice_id")
+  title       String
+  content     String?
+  isImportant Boolean   @default(false) @map("is_important")
+  centerId    String?   @map("center_id")
+  noticeDate  DateTime  @default(now()) @map("notice_date")
+  expireDate  DateTime? @map("expire_date")
+  isDeleted   Boolean   @default(false) @map("is_deleted")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+
+  @@map("tb_notice")
+}
+
+model Faq {
+  faqId     BigInt   @id @default(autoincrement()) @map("faq_id")
+  question  String
+  answer    String
+  category  String?
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  @@map("tb_faq")
+}
