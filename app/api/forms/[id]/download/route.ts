@@ -51,7 +51,7 @@ export async function GET(
   const mimeType = MIME_MAP[ext] ?? "application/octet-stream";
   const downloadName = `${form.formNm}.${ext.toLowerCase()}`;
 
-  return new NextResponse(buffer, {
+  return new NextResponse(buffer as unknown as BodyInit, {
     status: 200,
     headers: {
       "Content-Type": mimeType,
