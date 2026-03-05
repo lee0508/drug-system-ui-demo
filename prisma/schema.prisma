@@ -157,12 +157,17 @@ model Subject {
   updatedAt    DateTime  @updatedAt @map("updated_at")
   createdBy    String?   @map("created_by")
 
-  drugTypes   SubjectDrug[]
-  pii         SubjectPii?
-  families    Family[]
-  assignments SupporterAssignment[]
-  intakes     Intake[]
-  eduLegals   EduLegal[]
+  drugTypes      SubjectDrug[]
+  pii            SubjectPii?
+  families       Family[]
+  assignments    SupporterAssignment[]
+  intakes        Intake[]
+  eduLegals      EduLegal[]
+  // 마약류 특화 역참조
+  drugUses       NaMemberDrugUse[]
+  tests          NaMemberTest[]
+  programEnrolls NaMemberProgramEnroll[]
+  referrals      NaMemberReferral[]
 
   @@map("tb_subject")
 }
@@ -988,4 +993,172 @@ model Faq {
   createdBy String?  @map("created_by")
 
   @@map("tb_faq")
+}
+
+// ===================================================================
+// 14. 마약류 특화 관리 (na_* — Narcotics/Addiction)
+// ===================================================================
+
+/// 약물 사용 이력 (핵심 — 물질별 상세)
+model NaMemberDrugUse {
+  drugUseId          String    @id @default(uuid()) @map("drug_use_id")
+  subjectId          String    @map("member_id")
+
+  // 물질 정보
+  substanceCode      String    @map("substance_code")       // METH | HEROIN | THC | FENTANYL 등
+  substanceName      String?   @map("substance_name")
+
+  // 사용 형태
+  routeCode          String?   @map("route_code")           // 경구 | 흡입 | 주사 | 기타
+  firstUseAge        Int?      @map("first_use_age")
+  useFrequencyCode   String?   @map("use_frequency_code")   // DAILY | WEEKLY | MONTHLY | ETC
+  lastUseDate        DateTime? @map("last_use_date")        @db.Date
+
+  // 위험 요소
+  injectionYn        Boolean   @default(false) @map("injection_yn")
+  overdoseHistoryYn  Boolean   @default(false) @map("overdose_history_yn")
+  overdoseCount      Int?      @map("overdose_count")
+  polysubstanceYn    Boolean   @default(false) @map("polysubstance_yn")   // 다물질 사용 여부
+
+  // 현재 상태
+  abstinentStartDate DateTime? @map("abstinent_start_date") @db.Date      // 금단/단약 시작일
+  severityCode       String?   @map("severity_code")                       // 경증 | 중등 | 중증
+  memo               String?
+
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  subject Subject @relation(fields: [subjectId], references: [subjectId])
+
+  @@index([subjectId], map: "idx_na_drug_use_member")
+  @@index([substanceCode], map: "idx_na_drug_use_substance")
+  @@map("na_member_drug_use")
+}
+
+/// 약물검사 / 검체검사 기록
+model NaMemberTest {
+  testId        String    @id @default(uuid()) @map("test_id")
+  subjectId     String    @map("member_id")
+
+  testTypeCode  String    @map("test_type_code")    // URINE | BLOOD | HAIR | SALIVA
+  testDate      DateTime  @map("test_date")          @db.Date
+  testOrgNm     String?   @map("test_org_nm")        // 검사기관명
+  resultCode    String    @map("result_code")         // POSITIVE | NEGATIVE | INCONCLUSIVE
+  resultDetail  Json?     @map("result_detail")       // {"METH":"POSITIVE","THC":"NEGATIVE"}
+  memo          String?
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  subject Subject @relation(fields: [subjectId], references: [subjectId])
+
+  @@index([subjectId], map: "idx_na_test_member")
+  @@index([testDate], map: "idx_na_test_date")
+  @@map("na_member_test")
+}
+
+/// 프로그램 마스터 (CBT / 집단상담 / 재활교육 / 가족교육 등)
+model NaProgram {
+  programId     String    @id @default(uuid()) @map("program_id")
+  programName   String    @map("program_name")
+  programType   String    @map("program_type")       // CBT | GROUP | REHAB | FAMILY
+  durationWeeks Int?      @map("duration_weeks")
+  memo          String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  sessions NaProgramSession[]
+  enrolls  NaMemberProgramEnroll[]
+
+  @@map("na_program")
+}
+
+/// 프로그램 회기 (세션)
+model NaProgramSession {
+  sessionId   String    @id @default(uuid()) @map("session_id")
+  programId   String    @map("program_id")
+  sessionNo   Int       @map("session_no")
+  sessionDate DateTime  @map("session_date")
+  location    String?
+  facilitator String?                                 // 진행자
+  memo        String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  program     NaProgram                    @relation(fields: [programId], references: [programId])
+  attendances NaMemberSessionAttendance[]
+
+  @@unique([programId, sessionNo])
+  @@map("na_program_session")
+}
+
+/// 회원-프로그램 등록 (수강/참여)
+model NaMemberProgramEnroll {
+  enrollId    String    @id @default(uuid()) @map("enroll_id")
+  subjectId   String    @map("member_id")
+  programId   String    @map("program_id")
+  enrollDate  DateTime  @default(now()) @map("enroll_date") @db.Date
+  statusCode  String    @default("ENROLLED") @map("status_code")  // ENROLLED | COMPLETED | DROPPED
+  dropReason  String?   @map("drop_reason")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  subject     Subject                      @relation(fields: [subjectId], references: [subjectId])
+  program     NaProgram                    @relation(fields: [programId], references: [programId])
+  attendances NaMemberSessionAttendance[]
+
+  @@unique([subjectId, programId])
+  @@index([subjectId], map: "idx_na_enroll_member")
+  @@map("na_member_program_enroll")
+}
+
+/// 회기별 출석 기록
+model NaMemberSessionAttendance {
+  attendanceId   String    @id @default(uuid()) @map("attendance_id")
+  enrollId       String    @map("enroll_id")
+  sessionId      String    @map("session_id")
+  attendanceCode String    @map("attendance_code")  // PRESENT | ABSENT | LATE | EXCUSED
+  note           String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  enroll  NaMemberProgramEnroll @relation(fields: [enrollId], references: [enrollId])
+  session NaProgramSession      @relation(fields: [sessionId], references: [sessionId])
+
+  @@unique([enrollId, sessionId])
+  @@index([sessionId], map: "idx_na_att_session")
+  @@map("na_member_session_attendance")
+}
+
+/// 의뢰 / 연계 / 회송 기록
+model NaMemberReferral {
+  referralId   String    @id @default(uuid()) @map("referral_id")
+  subjectId    String    @map("member_id")
+
+  referralType String    @map("referral_type")            // IN | OUT | RETURN
+  fromOrg      String?   @map("from_org")                 // 의뢰 기관
+  toOrg        String?   @map("to_org")                   // 연계 기관
+  referralDate DateTime  @default(now()) @map("referral_date") @db.Date
+  statusCode   String    @default("OPEN") @map("status_code")  // OPEN | IN_PROGRESS | CLOSED
+  closedDate   DateTime? @map("closed_date")               @db.Date
+  summary      String?
+
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  subject Subject @relation(fields: [subjectId], references: [subjectId])
+
+  @@index([subjectId], map: "idx_na_ref_member")
+  @@map("na_member_referral")
+}
+
+/// 감사 로그 — 민감정보 접근/변경 추적 (필수)
+model NaAuditLog {
+  auditId     BigInt    @id @default(autoincrement()) @map("audit_id")
+  actorUserId String?   @map("actor_user_id")              // 수행자 user_id
+  actionCode  String    @map("action_code")                // VIEW | CREATE | UPDATE | DELETE | EXPORT | LOGIN
+  entityName  String    @map("entity_name")                // tb_subject, na_member_test 등
+  entityId    String?   @map("entity_id")                  // 대상 PK
+  ipAddr      String?   @map("ip_addr")
+  userAgent   String?   @map("user_agent")
+  detail      Json?                                        // 변경 전후 diff
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([entityName, entityId], map: "idx_na_audit_entity")
+  @@index([actorUserId], map: "idx_na_audit_actor")
+  @@index([createdAt], map: "idx_na_audit_time")
+  @@map("na_audit_log")
 }
