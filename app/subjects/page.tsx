@@ -35,7 +35,225 @@ const DRUG_LABEL: Record<string, string> = {
   HEROIN: "헤로인", ECSTASY: "엑스터시", KETAMINE: "케타민",
   PSILOCYBIN: "실로시빈", OTHER: "기타",
 };
+const REGION_OPTIONS = [
+  "서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종",
+  "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주",
+];
 
+/* ─── 신규 등록 모달 ─────────────────────────────────────── */
+type FormData = {
+  alias: string;
+  gender: string;
+  birthYear: string;
+  regionCd: string;
+  entryRoute: string;
+  drugTypes: string[];
+};
+
+const EMPTY_FORM: FormData = {
+  alias: "",
+  gender: "M",
+  birthYear: "",
+  regionCd: "서울",
+  entryRoute: "SELF",
+  drugTypes: [],
+};
+
+function SubjectFormModal({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState<FormData>(EMPTY_FORM);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const set = (k: keyof FormData, v: string) =>
+    setForm((prev) => ({ ...prev, [k]: v }));
+
+  const toggleDrug = (code: string) =>
+    setForm((prev) => ({
+      ...prev,
+      drugTypes: prev.drugTypes.includes(code)
+        ? prev.drugTypes.filter((d) => d !== code)
+        : [...prev.drugTypes, code],
+    }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    if (!form.alias.trim()) { setError("가명을 입력해 주세요."); return; }
+    const yr = parseInt(form.birthYear);
+    if (!form.birthYear || isNaN(yr) || yr < 1900 || yr > new Date().getFullYear()) {
+      setError("출생연도를 올바르게 입력해 주세요."); return;
+    }
+    if (form.drugTypes.length === 0) { setError("마약유형을 1개 이상 선택해 주세요."); return; }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/subjects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          alias: form.alias.trim(),
+          gender: form.gender,
+          birthYear: yr,
+          regionCd: form.regionCd,
+          entryRoute: form.entryRoute,
+          drugTypes: form.drugTypes,
+          status: "ACTIVE",
+        }),
+      });
+      if (!res.ok) {
+        const msg = await res.text();
+        setError(`저장 실패: ${msg}`);
+        return;
+      }
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(`오류 발생: ${String(err)}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  /* 모달 바깥 클릭 닫기 */
+  const handleBackdrop = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) onClose();
+  };
+
+  return (
+    <div
+      onClick={handleBackdrop}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 1000,
+      }}
+    >
+      <div
+        style={{
+          background: "#fff", borderRadius: 10, padding: 28,
+          width: 520, maxHeight: "90vh", overflowY: "auto",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+        }}
+      >
+        {/* 헤더 */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>신규 대상자 등록</h3>
+          <button
+            onClick={onClose}
+            style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#666" }}
+          >✕</button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          {/* 에러 */}
+          {error && (
+            <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6, padding: "8px 12px", marginBottom: 16, color: "#dc2626", fontSize: 13 }}>
+              {error}
+            </div>
+          )}
+
+          {/* 가명 */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelStyle}>가명 <span style={{ color: "#dc2626" }}>*</span></label>
+            <input
+              className="input"
+              value={form.alias}
+              onChange={(e) => set("alias", e.target.value)}
+              placeholder="예: 홍**"
+              maxLength={20}
+              style={{ width: "100%" }}
+            />
+            <div style={hintStyle}>실명 대신 가명으로 입력합니다 (개인정보보호).</div>
+          </div>
+
+          {/* 성별 / 출생연도 */}
+          <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>성별 <span style={{ color: "#dc2626" }}>*</span></label>
+              <select className="input" value={form.gender} onChange={(e) => set("gender", e.target.value)} style={{ width: "100%" }}>
+                <option value="M">남</option>
+                <option value="F">여</option>
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>출생연도 <span style={{ color: "#dc2626" }}>*</span></label>
+              <input
+                className="input"
+                type="number"
+                value={form.birthYear}
+                onChange={(e) => set("birthYear", e.target.value)}
+                placeholder="예: 1990"
+                min={1900}
+                max={new Date().getFullYear()}
+                style={{ width: "100%" }}
+              />
+            </div>
+          </div>
+
+          {/* 지역 / 유입경로 */}
+          <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>지역 <span style={{ color: "#dc2626" }}>*</span></label>
+              <select className="input" value={form.regionCd} onChange={(e) => set("regionCd", e.target.value)} style={{ width: "100%" }}>
+                {REGION_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>유입경로 <span style={{ color: "#dc2626" }}>*</span></label>
+              <select className="input" value={form.entryRoute} onChange={(e) => set("entryRoute", e.target.value)} style={{ width: "100%" }}>
+                {Object.entries(ENTRY_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* 마약유형 */}
+          <div style={{ marginBottom: 20 }}>
+            <label style={labelStyle}>
+              마약유형 <span style={{ color: "#dc2626" }}>*</span>
+              <span style={{ fontWeight: 400, color: "#6b7280", marginLeft: 6 }}>(첫 번째 선택이 주 유형)</span>
+            </label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginTop: 6 }}>
+              {Object.entries(DRUG_LABEL).map(([code, label]) => (
+                <label key={code} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={form.drugTypes.includes(code)}
+                    onChange={() => toggleDrug(code)}
+                    style={{ width: 15, height: 15 }}
+                  />
+                  {label}
+                  {form.drugTypes[0] === code && (
+                    <span style={{ fontSize: 10, background: "#3b82f6", color: "#fff", borderRadius: 4, padding: "1px 5px" }}>주</span>
+                  )}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* 버튼 */}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button type="button" className="btn" onClick={onClose} disabled={submitting}>취소</button>
+            <button type="submit" className="btn primary" disabled={submitting}>
+              {submitting ? "저장 중..." : "등록"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+const labelStyle: React.CSSProperties = { display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4, color: "#374151" };
+const hintStyle: React.CSSProperties = { fontSize: 11, color: "#9ca3af", marginTop: 3 };
+
+/* ─── 대상자 목록 ────────────────────────────────────────── */
 function SubjectsContent() {
   const sp = useSearchParams();
   const [tab, setTab] = useState(sp.get("tab") ?? "subject");
@@ -46,6 +264,7 @@ function SubjectsContent() {
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
 
   const LIMIT = 20;
 
@@ -73,6 +292,14 @@ function SubjectsContent() {
 
   return (
     <Shell title="대상자 관리" subtitle="마약류 중독자 카드 · 가족/보호자 · 회복지원가">
+
+      {/* 신규 등록 모달 */}
+      {showForm && (
+        <SubjectFormModal
+          onClose={() => setShowForm(false)}
+          onSaved={() => { setPage(1); setSearch(""); setSearchInput(""); load(); }}
+        />
+      )}
 
       {/* 탭 */}
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
@@ -109,7 +336,7 @@ function SubjectsContent() {
                 style={{ flex: 1 }}
               />
               <button className="btn" onClick={handleSearch}>검색</button>
-              <button className="btn primary">+ 신규 등록</button>
+              <button className="btn primary" onClick={() => setShowForm(true)}>+ 신규 등록</button>
             </div>
 
             {loading ? (

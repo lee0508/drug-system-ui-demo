@@ -714,7 +714,237 @@ model IntegrationLog {
 }
 
 // ===================================================================
-// 12. 업무 지원
+// 12. 회원기본 (MHIS 정신건강사례관리 구조 — sMHIS 동일)
+// ===================================================================
+
+/// 회원기본: 복합PK (회원등록일자 + 회원등록순번)
+model MemberBasic {
+  memberRegDt      String   @map("member_reg_dt")       // 회원등록일자 (PK)
+  memberRegSeq     Int      @map("member_reg_seq")       // 회원등록순번 (PK)
+
+  // 기관 / 회원 분류
+  orgRsrcCd        String?  @map("org_rsrc_cd")          // 기관자원코드
+  memberTypeCd     String?  @map("member_type_cd")       // 회원유형코드
+
+  // 보호자
+  guardianPriority Int?     @map("guardian_priority")    // 보호자우선순위
+  guardianRelCd    String?  @map("guardian_rel_cd")      // 보호자관계코드
+  guardianCohabitYn String? @map("guardian_cohabit_yn") // 보호자동거여부
+  guardianSupportCd String? @map("guardian_support_cd") // 보호자지지정도코드
+
+  // 인적사항
+  nationalityCd    String?  @map("nationality_cd")       // 내외국인구분코드
+  memberNm         String?  @map("member_nm")             // 성명
+  rrn              String?  @map("rrn")                   // 주민등록번호 (암호화)
+  birthDt          String?  @map("birth_dt")              // 생년월일 (YYYYMMDD)
+  age              Int?                                    // 연령
+  genderCd         String?  @map("gender_cd")             // 성별코드
+  suicidePrevYn    String?  @map("suicide_prev_yn")      // 자살예방사업대상자여부
+
+  // 주소
+  localOfficeNo    String?  @map("local_office_no")      // 내소편번호
+  zipCd            String?  @map("zip_cd")                // 우편번호
+  addr1            String?  @map("addr1")                 // 주소1
+  addr2            String?  @map("addr2")                 // 주소2
+  addrMajorCd      String?  @map("addr_major_cd")        // 주거지대분류코드
+  addrMinorCd      String?  @map("addr_minor_cd")        // 주거지중분류코드
+
+  // 연락처
+  phone1           String?  @map("phone1")                // 전화번호1
+  phone2           String?  @map("phone2")                // 전화번호2
+  phone3           String?  @map("phone3")                // 전화번호3
+  extPhone1        String?  @map("ext_phone1")            // 대내전화1
+  extPhone2        String?  @map("ext_phone2")            // 대내전화2
+  extPhone3        String?  @map("ext_phone3")            // 대내전화3
+
+  // 사회경제적 배경
+  eduCd            String?  @map("edu_cd")                // 학력코드
+  jobCd            String?  @map("job_cd")                // 직업코드
+  gradeCd          String?  @map("grade_cd")              // 학년코드
+  econCd           String?  @map("econ_cd")               // 경제코드
+  religionCd       String?  @map("religion_cd")           // 종교코드
+  familyTypeCd     String?  @map("family_type_cd")        // 가족형태코드
+
+  // 의뢰경로
+  refMajorCd       String?  @map("ref_major_cd")          // 의뢰경로대분류코드
+  refMinorCd       String?  @map("ref_minor_cd")          // 의뢰경로중분류코드
+  refSubCd         String?  @map("ref_sub_cd")            // 의뢰경로소분류코드
+
+  // 장애 / 진단
+  mentalDisGradeCd String?  @map("mental_dis_grade_cd")  // 정신장애등급코드
+  mentalDisYn      String?  @map("mental_dis_yn")         // 정신장애여부
+  otherDisContent  String?  @map("other_dis_content")     // 기타장애내용
+  familyContent    String?  @map("family_content")        // 가족사항내용
+  regMajorCd       String?  @map("reg_major_cd")          // 등록대분류코드
+  diagCd           String?  @map("diag_cd")               // 진단코드
+
+  // 접수상담 연계 (FK)
+  counselDt        String?  @map("counsel_dt")            // 상담일자
+  counselSeq       Int?     @map("counsel_seq")           // 상담번
+
+  // 인적정보 최종 수정
+  piiModDt         DateTime? @map("pii_mod_dt")           // 인적정보수정일
+  piiModId         String?   @map("pii_mod_id")           // 인적정보수정자ID
+  mgmtDt           DateTime? @map("mgmt_dt")              // 관리일자
+  remark           String?                                 // 비고
+
+  // 시스템 공통 (등록/수정)
+  regOrgCd         String?   @map("reg_org_cd")           // 등록기관자원코드
+  regDt            DateTime  @default(now()) @map("reg_dt") // 등록일시
+  regId            String?   @map("reg_id")               // 등록자ID
+  updOrgCd         String?   @map("upd_org_cd")           // 수정기관자원코드
+  updDt            DateTime  @updatedAt @map("upd_dt")    // 수정일시
+  updId            String?   @map("upd_id")               // 수정자ID
+
+  // 연관 테이블
+  diagnoses        MemberDiagnosis[]
+  medications      MemberMedication[]
+  evaluations      MemberEvalBasic[]
+  linkages         MemberLinkage[]
+  ispAssessments   MemberIspAssessBasic[]
+
+  @@id([memberRegDt, memberRegSeq])
+  @@map("tb_member_basic")
+}
+
+/// 회원진단력
+model MemberDiagnosis {
+  memberRegDt    String   @map("member_reg_dt")     // 회원등록일자 (FK)
+  memberRegSeq   Int      @map("member_reg_seq")     // 회원등록순번 (FK)
+  inputDt        String   @map("input_dt")           // 입력일자
+  diagCd         String   @map("diag_cd")            // 진단코드
+  diagNm         String?  @map("diag_nm")            // 진단명
+  diagPriority   Int?     @map("diag_priority")      // 진단우선순위
+  regOrgCd       String?  @map("reg_org_cd")
+  regDt          DateTime @default(now()) @map("reg_dt")
+  regId          String?  @map("reg_id")
+  updOrgCd       String?  @map("upd_org_cd")
+  updDt          DateTime @updatedAt @map("upd_dt")
+  updId          String?  @map("upd_id")
+
+  member MemberBasic @relation(fields: [memberRegDt, memberRegSeq], references: [memberRegDt, memberRegSeq])
+
+  @@id([memberRegDt, memberRegSeq, inputDt, diagCd])
+  @@map("tb_member_diagnosis")
+}
+
+/// 회원치료약물기본
+model MemberMedication {
+  memberRegDt      String   @map("member_reg_dt")
+  memberRegSeq     Int      @map("member_reg_seq")
+  inputDt          String   @map("input_dt")          // 입력일자
+  inputSeq         Int      @map("input_seq")          // 입력순번
+  prescribingNm    String?  @map("prescribing_nm")    // 조치의명
+  drugNmCd         String?  @map("drug_nm_cd")        // 약명코드
+  dosageMgmtCd     String?  @map("dosage_mgmt_cd")   // 용량관리코드
+  complianceCd     String?  @map("compliance_cd")     // 순응도코드
+  sideEffectYn     String?  @map("side_effect_yn")   // 부작용경험여부
+  regOrgCd         String?  @map("reg_org_cd")
+  regDt            DateTime @default(now()) @map("reg_dt")
+  regId            String?  @map("reg_id")
+  updOrgCd         String?  @map("upd_org_cd")
+  updDt            DateTime @updatedAt @map("upd_dt")
+  updId            String?  @map("upd_id")
+
+  member MemberBasic @relation(fields: [memberRegDt, memberRegSeq], references: [memberRegDt, memberRegSeq])
+
+  @@id([memberRegDt, memberRegSeq, inputDt, inputSeq])
+  @@map("tb_member_medication")
+}
+
+/// 회원평가기본
+model MemberEvalBasic {
+  memberRegDt    String   @map("member_reg_dt")
+  memberRegSeq   Int      @map("member_reg_seq")
+  bizTypeCd      String   @map("biz_type_cd")       // 사업분류코드
+  evalDt         String   @map("eval_dt")            // 평가일자
+  evalToolCd     String   @map("eval_tool_cd")       // 평가도구코드
+  evalScore      Int?     @map("eval_score")         // 평가점수
+  evalSummary    String?  @map("eval_summary")       // 평가결과요약
+  regOrgCd       String?  @map("reg_org_cd")
+  regDt          DateTime @default(now()) @map("reg_dt")
+  regId          String?  @map("reg_id")
+  updOrgCd       String?  @map("upd_org_cd")
+  updDt          DateTime @updatedAt @map("upd_dt")
+  updId          String?  @map("upd_id")
+
+  member  MemberBasic       @relation(fields: [memberRegDt, memberRegSeq], references: [memberRegDt, memberRegSeq])
+  details MemberEvalDetail[]
+
+  @@id([memberRegDt, memberRegSeq, bizTypeCd, evalDt, evalToolCd])
+  @@map("tb_member_eval_basic")
+}
+
+/// 회원평가상세
+model MemberEvalDetail {
+  memberRegDt    String   @map("member_reg_dt")
+  memberRegSeq   Int      @map("member_reg_seq")
+  bizTypeCd      String   @map("biz_type_cd")
+  evalDt         String   @map("eval_dt")
+  evalToolCd     String   @map("eval_tool_cd")
+  evalToolDetCd  String   @map("eval_tool_det_cd")  // 평가도구상세코드
+  evalScore      Int?     @map("eval_score")          // 평가점수
+  regOrgCd       String?  @map("reg_org_cd")
+  regDt          DateTime @default(now()) @map("reg_dt")
+  regId          String?  @map("reg_id")
+  updOrgCd       String?  @map("upd_org_cd")
+  updDt          DateTime @updatedAt @map("upd_dt")
+  updId          String?  @map("upd_id")
+
+  evalBasic MemberEvalBasic @relation(fields: [memberRegDt, memberRegSeq, bizTypeCd, evalDt, evalToolCd], references: [memberRegDt, memberRegSeq, bizTypeCd, evalDt, evalToolCd])
+
+  @@id([memberRegDt, memberRegSeq, bizTypeCd, evalDt, evalToolCd, evalToolDetCd])
+  @@map("tb_member_eval_detail")
+}
+
+/// 회원연계내역
+model MemberLinkage {
+  linkDt         String   @map("link_dt")             // 연계처리일자 (PK)
+  linkSeq        Int      @map("link_seq")             // 연계순번 (PK)
+  memberRegDt    String   @map("member_reg_dt")        // 회원등록일자 (FK)
+  memberRegSeq   Int      @map("member_reg_seq")       // 회원등록순번 (FK)
+  linkOrgRsrcCd  String?  @map("link_org_rsrc_cd")    // 연계기관자원코드
+  linkSvcCd      String?  @map("link_svc_cd")          // 연계서비스코드
+  linkContent    String?  @map("link_content")          // 연계내용
+  linkResultCd   String?  @map("link_result_cd")        // 연계결과코드
+  linkEndDt      DateTime? @map("link_end_dt")          // 연계종결일자
+  regOrgCd       String?  @map("reg_org_cd")
+  regDt          DateTime @default(now()) @map("reg_dt")
+  regId          String?  @map("reg_id")
+  updOrgCd       String?  @map("upd_org_cd")
+  updDt          DateTime @updatedAt @map("upd_dt")
+  updId          String?  @map("upd_id")
+
+  member MemberBasic @relation(fields: [memberRegDt, memberRegSeq], references: [memberRegDt, memberRegSeq])
+
+  @@id([linkDt, linkSeq])
+  @@map("tb_member_linkage")
+}
+
+/// 회원ISP사정기본
+model MemberIspAssessBasic {
+  memberRegDt    String   @map("member_reg_dt")
+  memberRegSeq   Int      @map("member_reg_seq")
+  assessSeq      Int      @map("assess_seq")            // 사정번
+  assessDt       String   @map("assess_dt")             // 사정일자
+  bizTypeCd      String?  @map("biz_type_cd")           // 사업분류코드
+  piiModDt       DateTime? @map("pii_mod_dt")           // 인적정보수정일
+  piiModId       String?   @map("pii_mod_id")           // 인적정보수정자ID
+  regOrgCd       String?  @map("reg_org_cd")
+  regDt          DateTime @default(now()) @map("reg_dt")
+  regId          String?  @map("reg_id")
+  updOrgCd       String?  @map("upd_org_cd")
+  updDt          DateTime @updatedAt @map("upd_dt")
+  updId          String?  @map("upd_id")
+
+  member MemberBasic @relation(fields: [memberRegDt, memberRegSeq], references: [memberRegDt, memberRegSeq])
+
+  @@id([memberRegDt, memberRegSeq, assessSeq])
+  @@map("tb_member_isp_assess_basic")
+}
+
+// ===================================================================
+// 13. 업무 지원
 // ===================================================================
 
 model FormTemplate {
