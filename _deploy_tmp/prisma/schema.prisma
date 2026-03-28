@@ -1,0 +1,1164 @@
+// =====================================================
+// 마약류중독자관리시스템 — Prisma Schema
+// Target DB : PostgreSQL 15+
+// Generated : 2026-03-03
+// =====================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===================================================================
+// 00. 공통 코드
+// ===================================================================
+
+model CodeGroup {
+  groupCd     String   @id @map("group_cd")
+  groupNm     String   @map("group_nm")
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  codes Code[]
+
+  @@map("tb_code_group")
+}
+
+model Code {
+  groupCd  String @map("group_cd")
+  code     String
+  codeNm   String @map("code_nm")
+  codeNmEn String? @map("code_nm_en")
+  extra1   String? @map("extra1")
+  sortOrder Int    @default(0) @map("sort_order")
+  isActive  Boolean @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  group CodeGroup @relation(fields: [groupCd], references: [groupCd])
+
+  @@id([groupCd, code])
+  @@map("tb_code")
+}
+
+// ===================================================================
+// 01. 센터 관리
+// ===================================================================
+
+model Region {
+  regionCd  String   @id @map("region_cd")
+  regionNm  String   @map("region_nm")
+  sortOrder Int      @default(0) @map("sort_order")
+
+  centers Center[]
+
+  @@map("tb_region")
+}
+
+model Center {
+  centerId  String   @id @map("center_id")
+  centerNm  String   @map("center_nm")
+  regionCd  String   @map("region_cd")
+  address   String?
+  phone     String?
+  manager   String?
+  capacity  Int      @default(30)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  region Region @relation(fields: [regionCd], references: [regionCd])
+  users  User[]
+  cases  Case[]
+
+  @@map("tb_center")
+}
+
+// ===================================================================
+// 02. 권한 관리
+// ===================================================================
+
+model Role {
+  roleId String @id @map("role_id")
+  roleNm String @map("role_nm")
+
+  users User[]
+
+  @@map("tb_role")
+}
+
+model User {
+  userId    String   @id @map("user_id")
+  roleId    String   @map("role_id")
+  centerId  String?  @map("center_id")
+  userNm    String   @map("user_nm")
+  email     String?  @unique
+  pwdHash   String?  @map("pwd_hash")
+  isActive  Boolean  @default(true) @map("is_active")
+  isDeleted Boolean  @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  role      Role       @relation(fields: [roleId], references: [roleId])
+  center    Center?    @relation(fields: [centerId], references: [centerId])
+  loginLogs UserLoginLog[]
+
+  @@map("tb_user")
+}
+
+model UserLoginLog {
+  logId     BigInt   @id @default(autoincrement()) @map("log_id")
+  userId    String   @map("user_id")
+  loginAt   DateTime @default(now()) @map("login_at")
+  ipAddr    String?  @map("ip_addr")
+  result    String   @default("SUCCESS")
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@map("tb_user_login_log")
+}
+
+model AuditLog {
+  auditId   BigInt   @id @default(autoincrement()) @map("audit_id")
+  userId    String?  @map("user_id")
+  tableNm   String   @map("table_nm")
+  recordId  String   @map("record_id")
+  action    String   // INSERT | UPDATE | DELETE
+  oldData   Json?    @map("old_data")
+  newData   Json?    @map("new_data")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("tb_audit_log")
+}
+
+// ===================================================================
+// 03. 대상자 관리
+// ===================================================================
+
+model Subject {
+  subjectId    String    @id @map("subject_id")
+  caseNo       String    @unique @map("case_no")
+  alias        String
+  gender       String    // M | F
+  birthYear    Int       @map("birth_year")
+  regionCd     String    @map("region_cd")
+  entryRoute   String    @map("entry_route")  // 1342 | LEGAL | SELF | AGENCY
+  status       String    @default("ACTIVE")   // ACTIVE | MONITORING | CLOSED
+  isDeleted    Boolean   @default(false) @map("is_deleted")
+  deletedAt    DateTime? @map("deleted_at")
+  registeredAt DateTime  @default(now()) @map("registered_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  createdBy    String?   @map("created_by")
+
+  drugTypes      SubjectDrug[]
+  pii            SubjectPii?
+  families       Family[]
+  assignments    SupporterAssignment[]
+  intakes        Intake[]
+  eduLegals      EduLegal[]
+  // 마약류 특화 역참조
+  drugUses       NaMemberDrugUse[]
+  tests          NaMemberTest[]
+  programEnrolls NaMemberProgramEnroll[]
+  referrals      NaMemberReferral[]
+
+  @@map("tb_subject")
+}
+
+model SubjectDrug {
+  id        BigInt  @id @default(autoincrement())
+  subjectId String  @map("subject_id")
+  drugCd    String  @map("drug_cd")
+  isPrimary Boolean @default(false) @map("is_primary")
+
+  subject Subject @relation(fields: [subjectId], references: [subjectId])
+
+  @@map("tb_subject_drug")
+}
+
+/// 개인정보 암호화 분리 테이블 (AES-256 암호화 적용)
+model SubjectPii {
+  subjectId   String   @id @map("subject_id")
+  fullNameEnc String?  @map("full_name_enc")   // 실명 (암호화)
+  rrnEnc      String?  @map("rrn_enc")          // 주민등록번호 (암호화)
+  phoneEnc    String?  @map("phone_enc")         // 연락처 (암호화)
+  addrEnc     String?  @map("addr_enc")          // 주소 (암호화)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  subject Subject @relation(fields: [subjectId], references: [subjectId])
+
+  @@map("tb_subject_pii")
+}
+
+model Family {
+  familyId  BigInt   @id @default(autoincrement()) @map("family_id")
+  subjectId String   @map("subject_id")
+  relation  String
+  phoneEnc  String?  @map("phone_enc")
+  isLiving  Boolean? @map("is_living")
+  consentYn Boolean  @default(false) @map("consent_yn")
+  isDeleted Boolean  @default(false) @map("is_deleted")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  subject Subject @relation(fields: [subjectId], references: [subjectId])
+
+  @@map("tb_family")
+}
+
+model Supporter {
+  supporterId String   @id @map("supporter_id")
+  supporterNm String   @map("supporter_nm")
+  phoneEnc    String?  @map("phone_enc")
+  centerId    String?  @map("center_id")
+  isActive    Boolean  @default(true) @map("is_active")
+  isDeleted   Boolean  @default(false) @map("is_deleted")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  assignments SupporterAssignment[]
+
+  @@map("tb_supporter")
+}
+
+model SupporterAssignment {
+  assignId    BigInt    @id @default(autoincrement()) @map("assign_id")
+  supporterId String    @map("supporter_id")
+  subjectId   String    @map("subject_id")
+  startDate   DateTime  @map("start_date")
+  endDate     DateTime? @map("end_date")
+  isActive    Boolean   @default(true) @map("is_active")
+
+  supporter Supporter @relation(fields: [supporterId], references: [supporterId])
+  subject   Subject   @relation(fields: [subjectId], references: [subjectId])
+
+  @@map("tb_supporter_assignment")
+}
+
+// ===================================================================
+// 04. 접수 / 초기개입
+// ===================================================================
+
+model Intake {
+  intakeId        BigInt    @id @default(autoincrement()) @map("intake_id")
+  intakeNo        String    @unique @map("intake_no")
+  source          String    // 1342 | ONLINE | WALKIN | AGENCY
+  regionCd        String?   @map("region_cd")
+  triage          String    @default("LOW")    // LOW | MID | HIGH | EMERG
+  consent         Boolean   @default(false)
+  summary         String?
+  preferredCenter String?   @map("preferred_center")
+  assignedCenter  String?   @map("assigned_center")
+  intakeStep      String    @default("QUEUE") @map("intake_step") // QUEUE|SCREEN|CONSENT|ASSIGN|CONVERT
+  subjectId       String?   @map("subject_id")
+  convertedCaseId BigInt?   @map("converted_case_id")
+  isDeleted       Boolean   @default(false) @map("is_deleted")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  createdBy       String?   @map("created_by")
+
+  subject   Subject?      @relation(fields: [subjectId], references: [subjectId])
+  case      Case?         @relation(fields: [convertedCaseId], references: [caseId])
+  stepLogs  IntakeStepLog[]
+
+  @@map("tb_intake")
+}
+
+model IntakeStepLog {
+  logId    BigInt   @id @default(autoincrement()) @map("log_id")
+  intakeId BigInt   @map("intake_id")
+  step     String
+  doneAt   DateTime @default(now()) @map("done_at")
+  doneBy   String?  @map("done_by")
+  note     String?
+
+  intake Intake @relation(fields: [intakeId], references: [intakeId])
+
+  @@map("tb_intake_step_log")
+}
+
+// ===================================================================
+// 05. 사례 관리
+// ===================================================================
+
+model Case {
+  caseId       BigInt    @id @default(autoincrement()) @map("case_id")
+  subjectId    String    @map("subject_id")
+  centerId     String?   @map("center_id")
+  subjectLabel String    @map("subject_label")  // 가명 표시용
+  status       String    @default("NEW")  // NEW | IN_PROGRESS | MONITORING | CLOSED
+  triage       String    @default("LOW")
+  isDeleted    Boolean   @default(false) @map("is_deleted")
+  deletedAt    DateTime? @map("deleted_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  createdBy    String?   @map("created_by")
+
+  center      Center?          @relation(fields: [centerId], references: [centerId])
+  events      CaseEvent[]
+  tasks       CaseTask[]
+  isps        Isp[]
+  counselings Counseling[]
+  supports    CaseSupport[]
+  monitorings CaseMonitoring[]
+  closing     CaseClosing?
+  intakes     Intake[]
+
+  @@map("tb_case")
+}
+
+model CaseEvent {
+  eventId   BigInt   @id @default(autoincrement()) @map("event_id")
+  caseId    BigInt   @map("case_id")
+  eventType String   @map("event_type") // INTAKE|ASSESSMENT|ISP|INTERVENTION|REFERRAL|MONITORING|CLOSE
+  title     String
+  note      String?
+  eventAt   DateTime @default(now()) @map("event_at")
+  createdBy String?  @map("created_by")
+
+  case Case @relation(fields: [caseId], references: [caseId])
+
+  @@map("tb_case_event")
+}
+
+model CaseTask {
+  taskId    BigInt    @id @default(autoincrement()) @map("task_id")
+  caseId    BigInt    @map("case_id")
+  title     String
+  dueAt     DateTime? @map("due_at")
+  status    String    @default("TODO")  // TODO | DOING | DONE
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  case Case @relation(fields: [caseId], references: [caseId])
+
+  @@map("tb_case_task")
+}
+
+model Counseling {
+  counselId BigInt   @id @default(autoincrement()) @map("counsel_id")
+  caseId    BigInt   @map("case_id")
+  counselAt DateTime @map("counsel_at")
+  duration  Int?
+  method    String?
+  summary   String?
+  isDeleted Boolean  @default(false) @map("is_deleted")
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  case Case @relation(fields: [caseId], references: [caseId])
+
+  @@map("tb_counseling")
+}
+
+model CaseSupport {
+  supportId    BigInt    @id @default(autoincrement()) @map("support_id")
+  caseId       BigInt    @map("case_id")
+  supportType  String    @map("support_type")
+  resourceId   BigInt?   @map("resource_id")
+  referralDate DateTime? @map("referral_date")
+  note         String?
+  isDeleted    Boolean   @default(false) @map("is_deleted")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  case Case @relation(fields: [caseId], references: [caseId])
+
+  @@map("tb_case_support")
+}
+
+model CaseMonitoring {
+  monitorId   BigInt    @id @default(autoincrement()) @map("monitor_id")
+  caseId      BigInt    @map("case_id")
+  monitorAt   DateTime  @map("monitor_at")
+  method      String?
+  condition   String?
+  note        String?
+  nextMonitor DateTime? @map("next_monitor")
+  isDeleted   Boolean   @default(false) @map("is_deleted")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+
+  case Case @relation(fields: [caseId], references: [caseId])
+
+  @@map("tb_case_monitoring")
+}
+
+model CaseClosing {
+  closingId   BigInt   @id @default(autoincrement()) @map("closing_id")
+  caseId      BigInt   @unique @map("case_id")
+  closingType String   @map("closing_type")
+  closingDate DateTime @map("closing_date")
+  reason      String?
+  outcome     String?
+  isDeleted   Boolean  @default(false) @map("is_deleted")
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String?  @map("created_by")
+
+  case Case @relation(fields: [caseId], references: [caseId])
+
+  @@map("tb_case_closing")
+}
+
+// ===================================================================
+// 06. ISP (개인서비스계획)
+// ===================================================================
+
+model Isp {
+  ispId       BigInt   @id @default(autoincrement()) @map("isp_id")
+  caseId      BigInt   @map("case_id")
+  version     Int      @default(1)
+  isCurrent   Boolean  @default(true) @map("is_current")
+  reviewCycle String   @map("review_cycle")  // WEEKLY | MONTHLY | QUARTERLY
+  crisisPlan  String?  @map("crisis_plan")
+  isDeleted   Boolean  @default(false) @map("is_deleted")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdBy   String?  @map("created_by")
+
+  case          Case              @relation(fields: [caseId], references: [caseId])
+  problems      IspProblem[]
+  goals         IspGoal[]
+  interventions IspIntervention[]
+
+  @@map("tb_isp")
+}
+
+model IspProblem {
+  problemId BigInt @id @default(autoincrement()) @map("problem_id")
+  ispId     BigInt @map("isp_id")
+  sortOrder Int    @default(0) @map("sort_order")
+  problem   String
+
+  isp Isp @relation(fields: [ispId], references: [ispId])
+
+  @@map("tb_isp_problem")
+}
+
+model IspGoal {
+  goalId    BigInt    @id @default(autoincrement()) @map("goal_id")
+  ispId     BigInt    @map("isp_id")
+  horizon   String    // SHORT | MID | LONG
+  goal      String
+  metric    String?
+  due       DateTime?
+  status    String    @default("IN_PROGRESS")
+
+  isp Isp @relation(fields: [ispId], references: [ispId])
+
+  @@map("tb_isp_goal")
+}
+
+model IspIntervention {
+  interventionId BigInt  @id @default(autoincrement()) @map("intervention_id")
+  ispId          BigInt  @map("isp_id")
+  category       String  // COUNSELING | PROGRAM | MEDICAL | MHIS | LEGAL | WELFARE | FAMILY
+  action         String
+  owner          String?
+  schedule       String?
+
+  isp Isp @relation(fields: [ispId], references: [ispId])
+
+  @@map("tb_isp_intervention")
+}
+
+// ===================================================================
+// 07. 재활교육
+// ===================================================================
+
+model EduLegal {
+  eduId      BigInt    @id @default(autoincrement()) @map("edu_id")
+  subjectId  String    @map("subject_id")
+  legalType  String    @map("legal_type")  // PROSECUTION_SUSPENDED | TRAINING | COMPLETION
+  courtNm    String?   @map("court_nm")
+  orderDate  DateTime? @map("order_date")
+  startDate  DateTime? @map("start_date")
+  endDate    DateTime? @map("end_date")
+  hours      Int?
+  status     String    @default("SCHEDULED")
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  subject     Subject              @relation(fields: [subjectId], references: [subjectId])
+  attendances EduLegalAttendance[]
+
+  @@map("tb_edu_legal")
+}
+
+model EduLegalAttendance {
+  attendId   BigInt   @id @default(autoincrement()) @map("attend_id")
+  eduId      BigInt   @map("edu_id")
+  attendDate DateTime @map("attend_date")
+  hours      Int?
+  note       String?
+
+  edu EduLegal @relation(fields: [eduId], references: [eduId])
+
+  @@map("tb_edu_legal_attendance")
+}
+
+model EduProgram {
+  programId   BigInt   @id @default(autoincrement()) @map("program_id")
+  programNm   String   @map("program_nm")
+  programType String   @map("program_type")
+  centerId    String?  @map("center_id")
+  capacity    Int?
+  isActive    Boolean  @default(true) @map("is_active")
+  isDeleted   Boolean  @default(false) @map("is_deleted")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  sessions EduSession[]
+
+  @@map("tb_edu_program")
+}
+
+model EduSession {
+  sessionId   BigInt   @id @default(autoincrement()) @map("session_id")
+  programId   BigInt   @map("program_id")
+  sessionDate DateTime @map("session_date")
+  instructor  String?
+  location    String?
+  note        String?
+
+  program     EduProgram         @relation(fields: [programId], references: [programId])
+  attendances EduSessionAttend[]
+
+  @@map("tb_edu_session")
+}
+
+model EduSessionAttend {
+  attendId  BigInt  @id @default(autoincrement()) @map("attend_id")
+  sessionId BigInt  @map("session_id")
+  subjectId String  @map("subject_id")
+  attended  Boolean @default(true)
+  note      String?
+
+  session EduSession @relation(fields: [sessionId], references: [sessionId])
+
+  @@map("tb_edu_session_attend")
+}
+
+model EduOutreach {
+  outreachId   BigInt   @id @default(autoincrement()) @map("outreach_id")
+  outreachDate DateTime @map("outreach_date")
+  location     String?
+  staffCount   Int?     @map("staff_count")
+  targetCount  Int?     @map("target_count")
+  note         String?
+  isDeleted    Boolean  @default(false) @map("is_deleted")
+  createdAt    DateTime @default(now()) @map("created_at")
+  createdBy    String?  @map("created_by")
+
+  @@map("tb_edu_outreach")
+}
+
+// ===================================================================
+// 08. 지역 자원
+// ===================================================================
+
+model Resource {
+  resourceId   BigInt   @id @default(autoincrement()) @map("resource_id")
+  resourceNm   String   @map("resource_nm")
+  resourceType String   @map("resource_type")  // MEDICAL | WELFARE | LEGAL | EMPLOYMENT | SELF_HELP
+  regionCd     String?  @map("region_cd")
+  phone        String?
+  address      String?
+  note         String?
+  isActive     Boolean  @default(true) @map("is_active")
+  isDeleted    Boolean  @default(false) @map("is_deleted")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  referrals ResourceReferral[]
+
+  @@map("tb_resource")
+}
+
+model ResourceReferral {
+  referralId   BigInt   @id @default(autoincrement()) @map("referral_id")
+  resourceId   BigInt   @map("resource_id")
+  caseId       BigInt   @map("case_id")
+  referralDate DateTime @map("referral_date")
+  purpose      String?
+  result       String?
+  isDeleted    Boolean  @default(false) @map("is_deleted")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  resource Resource @relation(fields: [resourceId], references: [resourceId])
+
+  @@map("tb_resource_referral")
+}
+
+// ===================================================================
+// 09. 통계 관리
+// ===================================================================
+
+model StatsMonthly {
+  statsId        BigInt   @id @default(autoincrement()) @map("stats_id")
+  yyyymm         String   // '202603'
+  centerId       String?  @map("center_id")
+  regionCd       String?  @map("region_cd")
+  intakeTotal    Int      @default(0) @map("intake_total")
+  intake1342     Int      @default(0) @map("intake_1342")
+  intakeLegal    Int      @default(0) @map("intake_legal")
+  intakeAgency   Int      @default(0) @map("intake_agency")
+  intakeSelf     Int      @default(0) @map("intake_self")
+  caseNew        Int      @default(0) @map("case_new")
+  caseInProgress Int      @default(0) @map("case_in_progress")
+  caseMonitoring Int      @default(0) @map("case_monitoring")
+  caseClosed     Int      @default(0) @map("case_closed")
+  eduLegalCnt    Int      @default(0) @map("edu_legal_cnt")
+  eduShortCnt    Int      @default(0) @map("edu_short_cnt")
+  eduOutreachCnt Int      @default(0) @map("edu_outreach_cnt")
+  counselCnt     Int      @default(0) @map("counsel_cnt")
+  generatedAt    DateTime @default(now()) @map("generated_at")
+
+  @@unique([yyyymm, centerId])
+  @@map("tb_stats_monthly")
+}
+
+model Report {
+  reportId    BigInt    @id @default(autoincrement()) @map("report_id")
+  reportType  String    @map("report_type")  // MONTHLY | QUARTERLY | ANNUAL | NATIONAL | AD_HOC
+  reportTitle String?   @map("report_title")
+  periodFrom  DateTime? @map("period_from")
+  periodTo    DateTime? @map("period_to")
+  centerId    String?   @map("center_id")
+  filePath    String?   @map("file_path")
+  status      String    @default("DRAFT")  // DRAFT | SUBMITTED | APPROVED
+  submittedAt DateTime? @map("submitted_at")
+  approvedBy  String?   @map("approved_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+
+  @@map("tb_report")
+}
+
+// ===================================================================
+// 10. 마감 관리
+// ===================================================================
+
+model ClosingChecklistTpl {
+  tplId       BigInt   @id @default(autoincrement()) @map("tpl_id")
+  closingType String   @map("closing_type")  // MONTHLY | QUARTERLY | ANNUAL
+  checkItem   String   @map("check_item")
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+
+  checkDones ClosingCheckDone[]
+
+  @@map("tb_closing_checklist_tpl")
+}
+
+model ClosingHistory {
+  closingId   BigInt    @id @default(autoincrement()) @map("closing_id")
+  closingType String    @map("closing_type")
+  periodLabel String    @map("period_label")  // '2026-02'
+  centerId    String?   @map("center_id")
+  status      String    @default("OPEN")  // OPEN | CLOSED
+  closedAt    DateTime? @map("closed_at")
+  closedBy    String?   @map("closed_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  checks ClosingCheckDone[]
+
+  @@map("tb_closing_history")
+}
+
+model ClosingCheckDone {
+  doneId    BigInt    @id @default(autoincrement()) @map("done_id")
+  closingId BigInt    @map("closing_id")
+  tplId     BigInt    @map("tpl_id")
+  doneYn    Boolean   @default(false) @map("done_yn")
+  doneAt    DateTime? @map("done_at")
+  doneBy    String?   @map("done_by")
+
+  history ClosingHistory      @relation(fields: [closingId], references: [closingId])
+  tpl     ClosingChecklistTpl @relation(fields: [tplId], references: [tplId])
+
+  @@map("tb_closing_check_done")
+}
+
+// ===================================================================
+// 11. 연계 관리
+// ===================================================================
+
+model Connector {
+  connectorId String    @id @map("connector_id")
+  connectorNm String    @map("connector_nm")
+  groupCd     String    @map("group_cd")  // EA | ADMIN
+  endpointUrl String?   @map("endpoint_url")
+  status      String    @default("OK")   // OK | DEGRADED | DOWN
+  lastSyncAt  DateTime? @map("last_sync_at")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  logs IntegrationLog[]
+
+  @@map("tb_connector")
+}
+
+model IntegrationLog {
+  logId       BigInt   @id @default(autoincrement()) @map("log_id")
+  connectorId String   @map("connector_id")
+  direction   String   // OUT | IN
+  message     String?
+  payload     Json?
+  result      String   // SUCCESS | FAIL
+  errorMsg    String?  @map("error_msg")
+  retryCount  Int      @default(0) @map("retry_count")
+  retriedFrom BigInt?  @map("retried_from")
+  loggedAt    DateTime @default(now()) @map("logged_at")
+
+  connector Connector @relation(fields: [connectorId], references: [connectorId])
+
+  @@map("tb_integration_log")
+}
+
+// ===================================================================
+// 12. 회원기본 (MHIS 정신건강사례관리 구조 — sMHIS 동일)
+// ===================================================================
+
+/// 회원기본: 복합PK (회원등록일자 + 회원등록순번)
+model MemberBasic {
+  memberRegDt      String   @map("member_reg_dt")       // 회원등록일자 (PK)
+  memberRegSeq     Int      @map("member_reg_seq")       // 회원등록순번 (PK)
+
+  // 기관 / 회원 분류
+  orgRsrcCd        String?  @map("org_rsrc_cd")          // 기관자원코드
+  memberTypeCd     String?  @map("member_type_cd")       // 회원유형코드
+
+  // 보호자
+  guardianPriority Int?     @map("guardian_priority")    // 보호자우선순위
+  guardianRelCd    String?  @map("guardian_rel_cd")      // 보호자관계코드
+  guardianCohabitYn String? @map("guardian_cohabit_yn") // 보호자동거여부
+  guardianSupportCd String? @map("guardian_support_cd") // 보호자지지정도코드
+
+  // 인적사항
+  nationalityCd    String?  @map("nationality_cd")       // 내외국인구분코드
+  memberNm         String?  @map("member_nm")             // 성명
+  rrn              String?  @map("rrn")                   // 주민등록번호 (암호화)
+  birthDt          String?  @map("birth_dt")              // 생년월일 (YYYYMMDD)
+  age              Int?                                    // 연령
+  genderCd         String?  @map("gender_cd")             // 성별코드
+  suicidePrevYn    String?  @map("suicide_prev_yn")      // 자살예방사업대상자여부
+
+  // 주소
+  localOfficeNo    String?  @map("local_office_no")      // 내소편번호
+  zipCd            String?  @map("zip_cd")                // 우편번호
+  addr1            String?  @map("addr1")                 // 주소1
+  addr2            String?  @map("addr2")                 // 주소2
+  addrMajorCd      String?  @map("addr_major_cd")        // 주거지대분류코드
+  addrMinorCd      String?  @map("addr_minor_cd")        // 주거지중분류코드
+
+  // 연락처
+  phone1           String?  @map("phone1")                // 전화번호1
+  phone2           String?  @map("phone2")                // 전화번호2
+  phone3           String?  @map("phone3")                // 전화번호3
+  extPhone1        String?  @map("ext_phone1")            // 대내전화1
+  extPhone2        String?  @map("ext_phone2")            // 대내전화2
+  extPhone3        String?  @map("ext_phone3")            // 대내전화3
+
+  // 사회경제적 배경
+  eduCd            String?  @map("edu_cd")                // 학력코드
+  jobCd            String?  @map("job_cd")                // 직업코드
+  gradeCd          String?  @map("grade_cd")              // 학년코드
+  econCd           String?  @map("econ_cd")               // 경제코드
+  religionCd       String?  @map("religion_cd")           // 종교코드
+  familyTypeCd     String?  @map("family_type_cd")        // 가족형태코드
+
+  // 의뢰경로
+  refMajorCd       String?  @map("ref_major_cd")          // 의뢰경로대분류코드
+  refMinorCd       String?  @map("ref_minor_cd")          // 의뢰경로중분류코드
+  refSubCd         String?  @map("ref_sub_cd")            // 의뢰경로소분류코드
+
+  // 장애 / 진단
+  mentalDisGradeCd String?  @map("mental_dis_grade_cd")  // 정신장애등급코드
+  mentalDisYn      String?  @map("mental_dis_yn")         // 정신장애여부
+  otherDisContent  String?  @map("other_dis_content")     // 기타장애내용
+  familyContent    String?  @map("family_content")        // 가족사항내용
+  regMajorCd       String?  @map("reg_major_cd")          // 등록대분류코드
+  diagCd           String?  @map("diag_cd")               // 진단코드
+
+  // 접수상담 연계 (FK)
+  counselDt        String?  @map("counsel_dt")            // 상담일자
+  counselSeq       Int?     @map("counsel_seq")           // 상담번
+
+  // 인적정보 최종 수정
+  piiModDt         DateTime? @map("pii_mod_dt")           // 인적정보수정일
+  piiModId         String?   @map("pii_mod_id")           // 인적정보수정자ID
+  mgmtDt           DateTime? @map("mgmt_dt")              // 관리일자
+  remark           String?                                 // 비고
+
+  // 시스템 공통 (등록/수정)
+  regOrgCd         String?   @map("reg_org_cd")           // 등록기관자원코드
+  regDt            DateTime  @default(now()) @map("reg_dt") // 등록일시
+  regId            String?   @map("reg_id")               // 등록자ID
+  updOrgCd         String?   @map("upd_org_cd")           // 수정기관자원코드
+  updDt            DateTime  @updatedAt @map("upd_dt")    // 수정일시
+  updId            String?   @map("upd_id")               // 수정자ID
+
+  // 연관 테이블
+  diagnoses        MemberDiagnosis[]
+  medications      MemberMedication[]
+  evaluations      MemberEvalBasic[]
+  linkages         MemberLinkage[]
+  ispAssessments   MemberIspAssessBasic[]
+
+  @@id([memberRegDt, memberRegSeq])
+  @@map("tb_member_basic")
+}
+
+/// 회원진단력
+model MemberDiagnosis {
+  memberRegDt    String   @map("member_reg_dt")     // 회원등록일자 (FK)
+  memberRegSeq   Int      @map("member_reg_seq")     // 회원등록순번 (FK)
+  inputDt        String   @map("input_dt")           // 입력일자
+  diagCd         String   @map("diag_cd")            // 진단코드
+  diagNm         String?  @map("diag_nm")            // 진단명
+  diagPriority   Int?     @map("diag_priority")      // 진단우선순위
+  regOrgCd       String?  @map("reg_org_cd")
+  regDt          DateTime @default(now()) @map("reg_dt")
+  regId          String?  @map("reg_id")
+  updOrgCd       String?  @map("upd_org_cd")
+  updDt          DateTime @updatedAt @map("upd_dt")
+  updId          String?  @map("upd_id")
+
+  member MemberBasic @relation(fields: [memberRegDt, memberRegSeq], references: [memberRegDt, memberRegSeq])
+
+  @@id([memberRegDt, memberRegSeq, inputDt, diagCd])
+  @@map("tb_member_diagnosis")
+}
+
+/// 회원치료약물기본
+model MemberMedication {
+  memberRegDt      String   @map("member_reg_dt")
+  memberRegSeq     Int      @map("member_reg_seq")
+  inputDt          String   @map("input_dt")          // 입력일자
+  inputSeq         Int      @map("input_seq")          // 입력순번
+  prescribingNm    String?  @map("prescribing_nm")    // 조치의명
+  drugNmCd         String?  @map("drug_nm_cd")        // 약명코드
+  dosageMgmtCd     String?  @map("dosage_mgmt_cd")   // 용량관리코드
+  complianceCd     String?  @map("compliance_cd")     // 순응도코드
+  sideEffectYn     String?  @map("side_effect_yn")   // 부작용경험여부
+  regOrgCd         String?  @map("reg_org_cd")
+  regDt            DateTime @default(now()) @map("reg_dt")
+  regId            String?  @map("reg_id")
+  updOrgCd         String?  @map("upd_org_cd")
+  updDt            DateTime @updatedAt @map("upd_dt")
+  updId            String?  @map("upd_id")
+
+  member MemberBasic @relation(fields: [memberRegDt, memberRegSeq], references: [memberRegDt, memberRegSeq])
+
+  @@id([memberRegDt, memberRegSeq, inputDt, inputSeq])
+  @@map("tb_member_medication")
+}
+
+/// 회원평가기본
+model MemberEvalBasic {
+  memberRegDt    String   @map("member_reg_dt")
+  memberRegSeq   Int      @map("member_reg_seq")
+  bizTypeCd      String   @map("biz_type_cd")       // 사업분류코드
+  evalDt         String   @map("eval_dt")            // 평가일자
+  evalToolCd     String   @map("eval_tool_cd")       // 평가도구코드
+  evalScore      Int?     @map("eval_score")         // 평가점수
+  evalSummary    String?  @map("eval_summary")       // 평가결과요약
+  regOrgCd       String?  @map("reg_org_cd")
+  regDt          DateTime @default(now()) @map("reg_dt")
+  regId          String?  @map("reg_id")
+  updOrgCd       String?  @map("upd_org_cd")
+  updDt          DateTime @updatedAt @map("upd_dt")
+  updId          String?  @map("upd_id")
+
+  member  MemberBasic       @relation(fields: [memberRegDt, memberRegSeq], references: [memberRegDt, memberRegSeq])
+  details MemberEvalDetail[]
+
+  @@id([memberRegDt, memberRegSeq, bizTypeCd, evalDt, evalToolCd])
+  @@map("tb_member_eval_basic")
+}
+
+/// 회원평가상세
+model MemberEvalDetail {
+  memberRegDt    String   @map("member_reg_dt")
+  memberRegSeq   Int      @map("member_reg_seq")
+  bizTypeCd      String   @map("biz_type_cd")
+  evalDt         String   @map("eval_dt")
+  evalToolCd     String   @map("eval_tool_cd")
+  evalToolDetCd  String   @map("eval_tool_det_cd")  // 평가도구상세코드
+  evalScore      Int?     @map("eval_score")          // 평가점수
+  regOrgCd       String?  @map("reg_org_cd")
+  regDt          DateTime @default(now()) @map("reg_dt")
+  regId          String?  @map("reg_id")
+  updOrgCd       String?  @map("upd_org_cd")
+  updDt          DateTime @updatedAt @map("upd_dt")
+  updId          String?  @map("upd_id")
+
+  evalBasic MemberEvalBasic @relation(fields: [memberRegDt, memberRegSeq, bizTypeCd, evalDt, evalToolCd], references: [memberRegDt, memberRegSeq, bizTypeCd, evalDt, evalToolCd])
+
+  @@id([memberRegDt, memberRegSeq, bizTypeCd, evalDt, evalToolCd, evalToolDetCd])
+  @@map("tb_member_eval_detail")
+}
+
+/// 회원연계내역
+model MemberLinkage {
+  linkDt         String   @map("link_dt")             // 연계처리일자 (PK)
+  linkSeq        Int      @map("link_seq")             // 연계순번 (PK)
+  memberRegDt    String   @map("member_reg_dt")        // 회원등록일자 (FK)
+  memberRegSeq   Int      @map("member_reg_seq")       // 회원등록순번 (FK)
+  linkOrgRsrcCd  String?  @map("link_org_rsrc_cd")    // 연계기관자원코드
+  linkSvcCd      String?  @map("link_svc_cd")          // 연계서비스코드
+  linkContent    String?  @map("link_content")          // 연계내용
+  linkResultCd   String?  @map("link_result_cd")        // 연계결과코드
+  linkEndDt      DateTime? @map("link_end_dt")          // 연계종결일자
+  regOrgCd       String?  @map("reg_org_cd")
+  regDt          DateTime @default(now()) @map("reg_dt")
+  regId          String?  @map("reg_id")
+  updOrgCd       String?  @map("upd_org_cd")
+  updDt          DateTime @updatedAt @map("upd_dt")
+  updId          String?  @map("upd_id")
+
+  member MemberBasic @relation(fields: [memberRegDt, memberRegSeq], references: [memberRegDt, memberRegSeq])
+
+  @@id([linkDt, linkSeq])
+  @@map("tb_member_linkage")
+}
+
+/// 회원ISP사정기본
+model MemberIspAssessBasic {
+  memberRegDt    String   @map("member_reg_dt")
+  memberRegSeq   Int      @map("member_reg_seq")
+  assessSeq      Int      @map("assess_seq")            // 사정번
+  assessDt       String   @map("assess_dt")             // 사정일자
+  bizTypeCd      String?  @map("biz_type_cd")           // 사업분류코드
+  piiModDt       DateTime? @map("pii_mod_dt")           // 인적정보수정일
+  piiModId       String?   @map("pii_mod_id")           // 인적정보수정자ID
+  regOrgCd       String?  @map("reg_org_cd")
+  regDt          DateTime @default(now()) @map("reg_dt")
+  regId          String?  @map("reg_id")
+  updOrgCd       String?  @map("upd_org_cd")
+  updDt          DateTime @updatedAt @map("upd_dt")
+  updId          String?  @map("upd_id")
+
+  member MemberBasic @relation(fields: [memberRegDt, memberRegSeq], references: [memberRegDt, memberRegSeq])
+
+  @@id([memberRegDt, memberRegSeq, assessSeq])
+  @@map("tb_member_isp_assess_basic")
+}
+
+// ===================================================================
+// 13. 업무 지원
+// ===================================================================
+
+model FormTemplate {
+  formId    BigInt   @id @default(autoincrement()) @map("form_id")
+  formNm    String   @map("form_nm")
+  fileExt   String?  @map("file_ext")
+  filePath  String?  @map("file_path")
+  version   String?
+  isActive  Boolean  @default(true) @map("is_active")
+  isDeleted Boolean  @default(false) @map("is_deleted")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  createdBy String?  @map("created_by")
+
+  @@map("tb_form_template")
+}
+
+model Notice {
+  noticeId    BigInt    @id @default(autoincrement()) @map("notice_id")
+  title       String
+  content     String?
+  isImportant Boolean   @default(false) @map("is_important")
+  centerId    String?   @map("center_id")
+  noticeDate  DateTime  @default(now()) @map("notice_date")
+  expireDate  DateTime? @map("expire_date")
+  isDeleted   Boolean   @default(false) @map("is_deleted")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+
+  @@map("tb_notice")
+}
+
+model Faq {
+  faqId     BigInt   @id @default(autoincrement()) @map("faq_id")
+  question  String
+  answer    String
+  category  String?
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+
+  @@map("tb_faq")
+}
+
+// ===================================================================
+// 14. 마약류 특화 관리 (na_* — Narcotics/Addiction)
+// ===================================================================
+
+/// 약물 사용 이력 (핵심 — 물질별 상세)
+model NaMemberDrugUse {
+  drugUseId          String    @id @default(uuid()) @map("drug_use_id")
+  subjectId          String    @map("member_id")
+
+  // 물질 정보
+  substanceCode      String    @map("substance_code")       // METH | HEROIN | THC | FENTANYL 등
+  substanceName      String?   @map("substance_name")
+
+  // 사용 형태
+  routeCode          String?   @map("route_code")           // 경구 | 흡입 | 주사 | 기타
+  firstUseAge        Int?      @map("first_use_age")
+  useFrequencyCode   String?   @map("use_frequency_code")   // DAILY | WEEKLY | MONTHLY | ETC
+  lastUseDate        DateTime? @map("last_use_date")        @db.Date
+
+  // 위험 요소
+  injectionYn        Boolean   @default(false) @map("injection_yn")
+  overdoseHistoryYn  Boolean   @default(false) @map("overdose_history_yn")
+  overdoseCount      Int?      @map("overdose_count")
+  polysubstanceYn    Boolean   @default(false) @map("polysubstance_yn")   // 다물질 사용 여부
+
+  // 현재 상태
+  abstinentStartDate DateTime? @map("abstinent_start_date") @db.Date      // 금단/단약 시작일
+  severityCode       String?   @map("severity_code")                       // 경증 | 중등 | 중증
+  memo               String?
+
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  subject Subject @relation(fields: [subjectId], references: [subjectId])
+
+  @@index([subjectId], map: "idx_na_drug_use_member")
+  @@index([substanceCode], map: "idx_na_drug_use_substance")
+  @@map("na_member_drug_use")
+}
+
+/// 약물검사 / 검체검사 기록
+model NaMemberTest {
+  testId        String    @id @default(uuid()) @map("test_id")
+  subjectId     String    @map("member_id")
+
+  testTypeCode  String    @map("test_type_code")    // URINE | BLOOD | HAIR | SALIVA
+  testDate      DateTime  @map("test_date")          @db.Date
+  testOrgNm     String?   @map("test_org_nm")        // 검사기관명
+  resultCode    String    @map("result_code")         // POSITIVE | NEGATIVE | INCONCLUSIVE
+  resultDetail  Json?     @map("result_detail")       // {"METH":"POSITIVE","THC":"NEGATIVE"}
+  memo          String?
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  subject Subject @relation(fields: [subjectId], references: [subjectId])
+
+  @@index([subjectId], map: "idx_na_test_member")
+  @@index([testDate], map: "idx_na_test_date")
+  @@map("na_member_test")
+}
+
+/// 프로그램 마스터 (CBT / 집단상담 / 재활교육 / 가족교육 등)
+model NaProgram {
+  programId     String    @id @default(uuid()) @map("program_id")
+  programName   String    @map("program_name")
+  programType   String    @map("program_type")       // CBT | GROUP | REHAB | FAMILY
+  durationWeeks Int?      @map("duration_weeks")
+  memo          String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  sessions NaProgramSession[]
+  enrolls  NaMemberProgramEnroll[]
+
+  @@map("na_program")
+}
+
+/// 프로그램 회기 (세션)
+model NaProgramSession {
+  sessionId   String    @id @default(uuid()) @map("session_id")
+  programId   String    @map("program_id")
+  sessionNo   Int       @map("session_no")
+  sessionDate DateTime  @map("session_date")
+  location    String?
+  facilitator String?                                 // 진행자
+  memo        String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  program     NaProgram                    @relation(fields: [programId], references: [programId])
+  attendances NaMemberSessionAttendance[]
+
+  @@unique([programId, sessionNo])
+  @@map("na_program_session")
+}
+
+/// 회원-프로그램 등록 (수강/참여)
+model NaMemberProgramEnroll {
+  enrollId    String    @id @default(uuid()) @map("enroll_id")
+  subjectId   String    @map("member_id")
+  programId   String    @map("program_id")
+  enrollDate  DateTime  @default(now()) @map("enroll_date") @db.Date
+  statusCode  String    @default("ENROLLED") @map("status_code")  // ENROLLED | COMPLETED | DROPPED
+  dropReason  String?   @map("drop_reason")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  subject     Subject                      @relation(fields: [subjectId], references: [subjectId])
+  program     NaProgram                    @relation(fields: [programId], references: [programId])
+  attendances NaMemberSessionAttendance[]
+
+  @@unique([subjectId, programId])
+  @@index([subjectId], map: "idx_na_enroll_member")
+  @@map("na_member_program_enroll")
+}
+
+/// 회기별 출석 기록
+model NaMemberSessionAttendance {
+  attendanceId   String    @id @default(uuid()) @map("attendance_id")
+  enrollId       String    @map("enroll_id")
+  sessionId      String    @map("session_id")
+  attendanceCode String    @map("attendance_code")  // PRESENT | ABSENT | LATE | EXCUSED
+  note           String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  enroll  NaMemberProgramEnroll @relation(fields: [enrollId], references: [enrollId])
+  session NaProgramSession      @relation(fields: [sessionId], references: [sessionId])
+
+  @@unique([enrollId, sessionId])
+  @@index([sessionId], map: "idx_na_att_session")
+  @@map("na_member_session_attendance")
+}
+
+/// 의뢰 / 연계 / 회송 기록
+model NaMemberReferral {
+  referralId   String    @id @default(uuid()) @map("referral_id")
+  subjectId    String    @map("member_id")
+
+  referralType String    @map("referral_type")            // IN | OUT | RETURN
+  fromOrg      String?   @map("from_org")                 // 의뢰 기관
+  toOrg        String?   @map("to_org")                   // 연계 기관
+  referralDate DateTime  @default(now()) @map("referral_date") @db.Date
+  statusCode   String    @default("OPEN") @map("status_code")  // OPEN | IN_PROGRESS | CLOSED
+  closedDate   DateTime? @map("closed_date")               @db.Date
+  summary      String?
+
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  subject Subject @relation(fields: [subjectId], references: [subjectId])
+
+  @@index([subjectId], map: "idx_na_ref_member")
+  @@map("na_member_referral")
+}
+
+/// 감사 로그 — 민감정보 접근/변경 추적 (필수)
+model NaAuditLog {
+  auditId     BigInt    @id @default(autoincrement()) @map("audit_id")
+  actorUserId String?   @map("actor_user_id")              // 수행자 user_id
+  actionCode  String    @map("action_code")                // VIEW | CREATE | UPDATE | DELETE | EXPORT | LOGIN
+  entityName  String    @map("entity_name")                // tb_subject, na_member_test 등
+  entityId    String?   @map("entity_id")                  // 대상 PK
+  ipAddr      String?   @map("ip_addr")
+  userAgent   String?   @map("user_agent")
+  detail      Json?                                        // 변경 전후 diff
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([entityName, entityId], map: "idx_na_audit_entity")
+  @@index([actorUserId], map: "idx_na_audit_actor")
+  @@index([createdAt], map: "idx_na_audit_time")
+  @@map("na_audit_log")
+}
